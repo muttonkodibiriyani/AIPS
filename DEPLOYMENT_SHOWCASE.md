@@ -123,6 +123,16 @@ Set `COMMERCE_GATEWAY_URL` and `COMMERCE_API_KEY` in the process environment. Se
 
 ---
 
+## Troubleshooting: `package.json … Expected double-quoted property name`
+
+1. Open the failing build log and find the **`Commit:`** line. It must match the latest **`main`** on GitHub (see [Commits](https://github.com/muttonkodibiriyani/AIPS/commits/main)).
+2. If the commit is older (for example **`e6585f0`**), Vercel is redeploying a stale revision. Fix: **Project → Deployments →** open the newest deployment produced by a **push** to **`main`**, or **Redeploy** from the dashboard after selecting **the latest Git commit**. Do **not** only “Redo” an old deployment.
+3. In **Project Settings → Git**, confirm the repo is **`muttonkodibiriyani/AIPS`**, production branch **`main`**, and **Root Directory** **`apps/showcase`**.
+
+[GitHub `main`/package.json](https://github.com/muttonkodibiriyani/AIPS/blob/main/package.json) must parse as strict JSON (no trailing commas).
+
+---
+
 ## CI
 
 Showcase build: [`.github/workflows/showcase-ci.yml`](.github/workflows/showcase-ci.yml).
