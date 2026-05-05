@@ -158,6 +158,8 @@ More detail: [`services/catalog-ingestion/README.md`](./services/catalog-ingesti
 
    **`SHOWCASE_DEMO_SEGMENT`** (`any` · `men` · `women` · `kids`) — when a **row cap** applies (large file or explicit limit), defaults to **`men`** so storefront queries like “men’s sandals” match **`HNMDefault~customerGroup`** tokens (`Man`, `Man | Woman`, etc.). Plain **`any`** resumes a uniform random slice across the entire CSV (often dominated by whatever variety appears first). Set in Vercel **Environment Variables** if you need **`women`** or **`kids`**-only demo bundles without checking in the CSV.
 
+   **`SHOWCASE_DEMO_STRATIFY`** (`true` / `false`) — defaults to **`true`** when capped. Targets a **balanced merchandise mix** (home, footwear, tops, bottoms, outerwear, …) using title/heuristic buckets + per-bucket reservoir sampling, instead of one random contiguous slice so NL demos have inventory across intents. **`false`** restores a single global reservoir (~less diverse).
+
 4. **`GET /api/health`** exposes **`csvCatalogRows`**, **`csvCatalogTruncated`**, **`csvCatalogRowCap`**, **`csvCatalogSegment`**.
 
 5. Push to GitHub (respecting Git LFS or size caps); Vercel redeploy runs **`prebuild`**. **`SHOWCASE_DEMO_SEARCH=true`** only matters when **`catalog.csv` is absent** **and** the generated JSON has **zero** rows (stub fallback).

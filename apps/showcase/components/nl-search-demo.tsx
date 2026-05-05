@@ -256,13 +256,14 @@ export function NLSearchDemo() {
           <div className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
             <Cpu className="size-4" /> Facets snapshot
           </div>
-          {!facets.colors?.length && !facets.markets?.length ? (
+          {!facets.colors?.length && !facets.markets?.length && !facets.categories?.length ? (
             <p className="mb-5 text-sm text-slate-500">
               Populate OpenSearch facets — colours + corridor aggregates render here instantly.
             </p>
           ) : null}
           {facets.colors?.length ? <FacetGroup label="Colours" buckets={facets.colors} /> : null}
           {facets.markets?.length ? <FacetGroup label="Corridors" buckets={facets.markets} /> : null}
+          {facets.categories?.length ? <FacetGroup label="Merch buckets" buckets={facets.categories} /> : null}
         </div>
       </aside>
 

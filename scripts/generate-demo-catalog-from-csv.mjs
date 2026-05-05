@@ -6,6 +6,8 @@
  *   SHOWCASE_DEMO_ROW_LIMIT — max products; 0/unset with small file = all rows; large file auto cap 25k.
  *   SHOWCASE_DEMO_SEGMENT — any | men | women | kids (default: men when row cap applies, else any).
  *     Uses H&M-style HNMDefault~customerGroup (Man/Woman/Boy/Girl / combos).
+ *   SHOWCASE_DEMO_STRATIFY — true | false (default true when row cap applies). Targets a balanced merch mix
+ *     (home, footwear, tops, bottoms, …) instead of one random slice of rows.
  */
 import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { createReadStream } from "node:fs";
@@ -13,6 +15,8 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parse } from "csv-parse";
+
+import { computeCategoryTargets, inferMerchCategorySlug } from "../apps/showcase/lib/merch-category.mjs";
 
 const __root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -144,7 +148,8 @@ function reservoirAdd(arr, item, k, seenCount) {
 }
 
 /** @param {Record<string, string>} row */
-function rowToProduct(row) {
+/** @param {string | null | undefined} merchSlug — inferred stratified retrieval bucket */
+function rowToProduct(row, merchSlug) {
   const productId = row.product_id || row.id;
   const sku = row.sku;
   if (!productId && !sku) return null;
@@ -162,6 +167,10 @@ function rowToProduct(row) {
   if (row.brand) attrs.brand = row.brand;
   if (row.category) attrs.category = row.category;
   if (row.customer_group) attrs.customer_group = row.customer_group.trim();
+  if (merchSlug) {
+    attrs.retrieval_category = merchSlug;
+    attrs.retrieval_category_label = String(merchSlug).replace(/_/g, " ");
+  }
 
   const pricing = {};
   const pae = parsePrice(row.price_ae);
@@ -191,6 +200,8 @@ function rowToProduct(row) {
     pid,
     row.composition || "",
     row.customer_group || "",
+    merchSlug || "",
+    merchSlug ? String(merchSlug).replace(/_/g, " ") : "",
   ]
     .join(" ")
     .toLowerCase();
@@ -211,6 +222,21 @@ function rowToProduct(row) {
     search_text: searchText.slice(0, 8000),
     _score: 0,
   };
+}
+
+/** Row cap builds default to stratified category mix unless disabled. */
+function useStratifiedSampling(maxRows) {
+  if (maxRows == null) return false;
+  const v = (process.env.SHOWCASE_DEMO_STRATIFY ?? "true").trim().toLowerCase();
+  return !(v === "false" || v === "0");
+}
+
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 /** @param {number | null} maxRows */
@@ -239,6 +265,15 @@ function resolveRowLimit(csvPath, bytes) {
  * @param {string} segment
  */
 async function streamCsvToProducts(csvPath, maxRows, segment) {
+  const stratify = useStratifiedSampling(maxRows);
+  if (!stratify) {
+    return streamCsvUniformReservoir(csvPath, maxRows, segment);
+  }
+  return streamCsvStratifiedReservoir(csvPath, /** @type {number} */ (maxRows), segment);
+}
+
+/** @param {string} csvPath @param {number | null} maxRows @param {string} segment */
+async function streamCsvUniformReservoir(csvPath, maxRows, segment) {
   const parser = createReadStream(csvPath).pipe(
     parse({
       columns: true,
@@ -250,38 +285,114 @@ async function streamCsvToProducts(csvPath, maxRows, segment) {
 
   /** @type {unknown[]} */
   const primary = [];
-  let seenPrimary = 0;
+  let matchedRows = 0;
 
   for await (const rawRow of parser) {
     const aliased = aliasRow(/** @type {Record<string, string>} */ (rawRow));
-    const p = rowToProduct(aliased);
+
+    let ok = segment === "any";
+    if (segment !== "any") ok = matchesSegment(aliased, segment);
+    if (!ok) continue;
+
+    const slug = inferMerchCategorySlug(aliased.name_en || "", (aliased.desc_en || "").slice(0, 520));
+    const p = rowToProduct(aliased, slug);
     if (!p) continue;
 
-    if (segment === "any") {
-      if (maxRows == null) {
-        primary.push(p);
-      } else {
-        seenPrimary++;
-        reservoirAdd(primary, p, maxRows, seenPrimary);
-      }
-      continue;
-    }
-
-    if (!matchesSegment(aliased, segment)) continue;
-
+    matchedRows++;
     if (maxRows == null) {
       primary.push(p);
     } else {
-      seenPrimary++;
-      reservoirAdd(primary, p, maxRows, seenPrimary);
+      reservoirAdd(primary, p, maxRows, matchedRows);
     }
   }
 
-  /** @type {unknown[]} */
   const products = primary;
   const segmentUnderfilled = segment !== "any" && maxRows != null && primary.length < maxRows;
+  return { products, segmentUnderfilled, seenSegment: matchedRows, stratified: false, seats: null };
+}
 
-  return { products, segmentUnderfilled, seenSegment: seenPrimary };
+/** @param {string} csvPath @param {number} maxRows @param {string} segment */
+async function streamCsvStratifiedReservoir(csvPath, maxRows, segment) {
+  const seats = computeCategoryTargets(maxRows);
+  /** @type {Record<string, unknown[]>} */
+  const buckets = {};
+  /** @type {Record<string, number>} */
+  const seenBucket = {};
+  const seatKeys = Object.keys(seats);
+  for (const k of seatKeys) {
+    buckets[k] = [];
+    seenBucket[k] = 0;
+  }
+
+  /** @type {unknown[]} */
+  let overflow = [];
+  let overflowSeen = 0;
+  let seenSegmentRows = 0;
+
+  const parser = createReadStream(csvPath).pipe(
+    parse({
+      columns: true,
+      skip_empty_lines: true,
+      relax_quotes: true,
+      trim: true,
+    }),
+  );
+
+  for await (const rawRow of parser) {
+    const aliased = aliasRow(/** @type {Record<string, string>} */ (rawRow));
+
+    let ok = segment === "any";
+    if (segment !== "any") ok = matchesSegment(aliased, segment);
+    if (!ok) continue;
+
+    const nameEn = aliased.name_en || "";
+    const descSnip = (aliased.desc_en || "").slice(0, 520);
+    const inferred = inferMerchCategorySlug(nameEn, descSnip);
+    const bucketKey = Object.prototype.hasOwnProperty.call(seats, inferred) ? inferred : "other";
+    const cap = seats[bucketKey] ?? seats.other;
+
+    const p = rowToProduct(aliased, bucketKey);
+    if (!p) continue;
+
+    seenSegmentRows++;
+
+    seenBucket[bucketKey]++;
+    if (buckets[bucketKey].length < cap) {
+      reservoirAdd(buckets[bucketKey], p, cap, seenBucket[bucketKey]);
+    } else {
+      overflowSeen++;
+      reservoirAdd(overflow, p, maxRows, overflowSeen);
+    }
+  }
+
+  let products = interleaveBuckets(buckets, seatKeys);
+  if (products.length < maxRows && overflow.length > 0) {
+    shuffleInPlace(overflow);
+    products = products.concat(overflow.slice(0, maxRows - products.length));
+  }
+
+  const segmentUnderfilled = segment !== "any" && products.length < maxRows;
+  return {
+    products,
+    segmentUnderfilled,
+    seenSegment: seenSegmentRows,
+    stratified: true,
+    seats,
+  };
+}
+
+/** Interleave strata so grids are not grouped only by merchandising bucket. */
+function interleaveBuckets(buckets, seatKeys) {
+  const maxR = Math.max(0, ...seatKeys.map((k) => (buckets[k] ?? []).length));
+  /** @type {unknown[]} */
+  const out = [];
+  for (let r = 0; r < maxR; r++) {
+    for (const k of seatKeys) {
+      const row = buckets[k][r];
+      if (row) out.push(row);
+    }
+  }
+  return out;
 }
 
 async function main() {
@@ -330,7 +441,13 @@ async function main() {
 
   const maxRows = resolveRowLimit(csvPath, bytes);
   const segment = resolveSegment(maxRows);
-  const { products, segmentUnderfilled, seenSegment } = await streamCsvToProducts(csvPath, maxRows, segment);
+  const {
+    products,
+    segmentUnderfilled,
+    seenSegment,
+    stratified,
+    seats,
+  } = await streamCsvToProducts(csvPath, maxRows, segment);
 
   mkdirSync(OUT_DIR, { recursive: true });
   const payload = {
@@ -342,20 +459,25 @@ async function main() {
       limitApplied: maxRows,
       truncated: maxRows != null && products.length >= maxRows,
       segment,
-      reservoirSampling: maxRows != null,
+      reservoirSampling: maxRows != null && !stratified,
+      stratifiedCategoryMix: stratified,
+      categorySeatPlan: stratified ? seats : null,
       segmentUnderfilled,
       rowsSeenInSegment: seenSegment,
       hint:
         maxRows != null
-          ? `Capped demo (${segment}): uniform random sample of up to ${maxRows.toLocaleString()} rows. Full-catalog search: ingest + COMMERCE_GATEWAY_URL.`
+          ? stratified
+            ? `Capped demo (${segment}): stratified mix across apparel/home buckets (~${maxRows.toLocaleString()} SKUs). For full fidelity use ingest + COMMERCE_GATEWAY_URL + OpenSearch.`
+            : `Capped demo (${segment}): single-stream reservoir (~${maxRows.toLocaleString()} SKUs). Set SHOWCASE_DEMO_STRATIFY=true for category-balanced demo. Full catalog search: ingest + gateway.`
           : null,
     },
   };
   writeFileSync(OUT_FILE, JSON.stringify(payload), "utf8");
+  const stratLabel = stratified ? ", stratified" : "";
   const u = segmentUnderfilled ? " — fewer than cap rows matched this segment." : "";
   console.log(
     `[demo-catalog] Wrote ${products.length.toLocaleString()} products → ${OUT_FILE}` +
-      (maxRows ? ` (cap ${maxRows.toLocaleString()}, segment=${segment})` : ` (segment=${segment}, full read)`) +
+      (maxRows ? ` (cap ${maxRows.toLocaleString()}, segment=${segment}${stratLabel})` : ` (segment=${segment}, full read)`) +
       u,
   );
 }

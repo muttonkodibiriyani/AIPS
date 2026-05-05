@@ -20,6 +20,8 @@ export type DemoCatalogBuildMeta = {
   empty?: boolean;
   segment?: string;
   reservoirSampling?: boolean;
+  stratifiedCategoryMix?: boolean;
+  categorySeatPlan?: Record<string, number> | null;
   segmentUnderfilled?: boolean;
   rowsSeenInSegment?: number;
 };
@@ -116,6 +118,52 @@ function normalizeQueryPhrase(q: string): string {
     .replace(/[^\s\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Map NL-ish queries to stratified retrieval slugs emitted at CSV build (`attrs.retrieval_category`). */
+export function retrievalCategoryHintsFromQuery(phrase: string, rawLower: string): Set<string> {
+  const q = `${phrase} ${rawLower}`.toLowerCase();
+  const s = new Set<string>();
+
+  if (/\b(sandal|flip[-\s]*flops?|slides?|mules)\b/u.test(q)) s.add("footwear_sandals_slides");
+  if (/\b(?:sneaker|trainers?|running\s+shoes?|walking\s+shoes?)\b/u.test(q)) s.add("footwear_sneakers");
+  if (
+    /\b(?:boots?|loafers?|(?:high\s*)?heels?|pumps|oxford\s+shoes|slip\s*[-]?\s*on\s+shoes|espadrilles?)\b|\b\d+\s*shoes\b/u.test(q)
+  ) {
+    if (!/\bsandal\b/u.test(q) && !s.has("footwear_sneakers")) s.add("footwear_boots_other");
+  }
+
+  if (/\b(?:t[\s'-]*shirts?|tshirts?|graphic\s*tee|crew\s*neck\s*tee|fitted\s+tee)\b|\bpolo\s*t-?shirt/u.test(q)) {
+    s.add("tops_tees");
+  }
+  if (
+    /\bdress\s*shirt|button[\s-]down|oxford\s+shirt|linen\s+shirt|woven\s+shirt|casual\s+shirt|\bblouse\b|\bkurta\b/u.test(q) ||
+    (/\b(?:shirts?|blouses?)\b/u.test(q) && !/\bt[\s'-]*shirts?\b|\btshirts?\b|\bpolo\s*rugby/u.test(q))
+  ) {
+    s.add("tops_shirts_blouses");
+  }
+
+  if (
+    /\b(?:vase|cushion|duvet|bed\s*sheet|towel|candle|stoneware|kitchenware|decor|(?:home\s+)?accent|glassware|(?:dinner\s+)?plates?)\b/u.test(
+      q,
+    )
+  ) {
+    s.add("home_living");
+  }
+  if (/\b(?:jeans|denim)\b/u.test(q)) s.add("bottoms_jeans");
+  if (/\bshorts\b|\bbermuda\b/u.test(q)) s.add("bottoms_shorts");
+  if (/\b(?:trousers|pants?|chinos?|joggers?|sweatpants?)\b|\bcargo\s+pants\b/u.test(q)) s.add("bottoms_trousers");
+  if (/\b(?:jacket|coat|parka|blazer|hoodie|gilet|windbreaker|puffer|cardigan)\b/u.test(q)) s.add("outerwear");
+  if (/\b(?:jumper|sweater|knitted|pullover)\b/u.test(q)) s.add("knitwear");
+  if (/\b(?:dress|skirts?|jumpsuits?)\b/u.test(q)) s.add("dresses_skirts");
+  if (/\b(?:gym|yoga|workout|leggings?|sportswear|sport\s+racing)\b|\brunning\b.*\b(?:tights|leggings)/u.test(q)) {
+    s.add("activewear");
+  }
+  if (/\b(?:backpack|\bbag\b|wallet|belt|scarf|\bcap\b|beanie|\bhat\b|sunglasses|jewellery|jewelry|keyring)\b/u.test(q)) {
+    s.add("bags_accessories");
+  }
+  if (/\b(?:socks|underwear|bras?)\b/u.test(q)) s.add("underwear_lounge_socks");
+  return s;
 }
 
 /** Meaningful lexical tokens — drops stopwords and 1-letter noise; keeps Arabic/Unicode words. */
@@ -246,12 +294,14 @@ function scoreDoc(
   qtok: string[],
   colorWant: string | null,
   deprioritizeTees: boolean,
+  retrievalHints: Set<string>,
 ): number {
   const hay = p.search_text;
   const titleEn = p.title.en.toLowerCase();
   const titleAr = (p.title.ar || "").toLowerCase();
   const skuN = skuTokenNorm(String(p.sku || ""));
   const skuDisplay = String(p.sku || "").toLowerCase();
+  const retrievalCat = p.attrs?.retrieval_category;
 
   let score = 0;
 
@@ -302,6 +352,14 @@ function scoreDoc(
     }
   }
 
+  if (retrievalHints.size > 0 && retrievalCat) {
+    if (retrievalHints.has(retrievalCat)) {
+      score += 38;
+    } else if (retrievalHints.size <= 2 && !/^other$/u.test(retrievalCat)) {
+      score *= 0.65;
+    }
+  }
+
   return score;
 }
 
@@ -313,7 +371,11 @@ export function searchCsvDemoCatalog(
 ): {
   products: ProductRecord[];
   total: number;
-  facets: { colors?: { key: string; count: number }[]; markets?: { key: string; count: number }[] };
+  facets: {
+    colors?: { key: string; count: number }[];
+    markets?: { key: string; count: number }[];
+    categories?: { key: string; count: number }[];
+  };
   appliedFilters: Record<string, unknown>;
 } {
   const items = catalog.products ?? [];
@@ -326,6 +388,7 @@ export function searchCsvDemoCatalog(
   const phrase = normalizeQueryPhrase(queryFixed);
   const qtok = queryTokens(queryFixed);
   const deprioritizeTees = wantsStructuredShirtsNotTees(phrase);
+  const retrievalHints = retrievalCategoryHintsFromQuery(phrase, queryFixed.toLowerCase());
 
   let filtered = [...items];
 
@@ -352,7 +415,7 @@ export function searchCsvDemoCatalog(
     qtok.length === 0 && phrase.length < 2
       ? filtered.map((p) => ({ ...p, _score: 1 }))
       : filtered.map((p) => {
-          const s = scoreDoc(p, phrase, qtok, colorWant, deprioritizeTees);
+          const s = scoreDoc(p, phrase, qtok, colorWant, deprioritizeTees, retrievalHints);
           return { ...p, _score: s };
         });
 
@@ -375,11 +438,16 @@ export function searchCsvDemoCatalog(
 
   const colors = aggregateFacet(page.map((p) => p.attrs?.color).filter(Boolean) as string[]);
   const markets = aggregateFacet(page.map((p) => p.market).filter(Boolean) as string[]);
+  const categories = aggregateFacet(page.map((p) => p.attrs?.retrieval_category).filter(Boolean) as string[]);
 
   return {
     products: slice,
     total,
-    facets: { colors: colors.slice(0, 20), markets: markets.slice(0, 20) },
+    facets: {
+      colors: colors.slice(0, 20),
+      markets: markets.slice(0, 20),
+      categories: categories.slice(0, 18),
+    },
     appliedFilters: {
       source: "csv_catalog",
       tenantId,
@@ -387,6 +455,7 @@ export function searchCsvDemoCatalog(
       genderIntent: genderWant,
       colorHint: colorWant,
       deprioritizeTees,
+      retrievalCategoryHints: [...retrievalHints],
       queryTokens: qtok.slice(0, 12),
       phrase,
       catalogBuildMeta: catalog.buildMeta ?? null,
