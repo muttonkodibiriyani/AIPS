@@ -1,0 +1,431 @@
+openapi: 3.1.0
+info:
+  title: Commerce AI Gateway API
+  version: 0.1.0
+  description: |
+    Public HTTPS contract served at the NestJS gateway edge. Backend ownership:
+    orchestrator (/v1/search, /v1/autocomplete), agent-service (/v1/agent/query),
+    analytics-service (/v1/analytics/events), catalog-ingestion (admin/import + internal jobs).
+
+servers:
+  - url: http://localhost:3000
+    description: Local gateway default
+
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: OK
+
+  /v1/search:
+    post:
+      operationId: search
+      summary: Hybrid lexical + semantic product search (v1 scaffold)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Search results + facets scaffold
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "401":
+          description: Unauthorized (invalid API key)
+
+  /v1/autocomplete:
+    get:
+      operationId: autocomplete
+      summary: Prefix completions (stub in Milestone 0)
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+        - in: query
+          name: tenantId
+          schema:
+            type: string
+          required: false
+        - in: query
+          name: locale
+          schema:
+            type: string
+            default: en-AE
+      responses:
+        "200":
+          description: suggestion strings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutocompleteResponse"
+
+  /v1/agent/query:
+    post:
+      operationId: agentQuery
+      summary: Grounded conversational shopping assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentQueryRequest"
+      responses:
+        "200":
+          description: Assistant answer + constrained products shell
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentQueryResponse"
+
+  /v1/analytics/events:
+    post:
+      operationId: ingestSearchEvents
+      summary: Bulk ingest behavioural feedback (clicks / impressions)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchEventsBatch"
+      responses:
+        "200":
+          description: Acceptance summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchEventsAccepted"
+
+  /v1/admin/feeds/presign:
+    post:
+      operationId: feedsPresign
+      summary: Mint a temporary PUT URL for MinIO (.csv.gz) upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPresignRequest"
+      responses:
+        "200":
+          description: Presigned PUT details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPresignResponse"
+
+  /v1/admin/feeds/import:
+    post:
+      operationId: importFeed
+      summary: Enqueue ingestion after gzip CSV is in object storage (see presign + PUT)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedImportRequest"
+      responses:
+        "200":
+          description: Job accepted and queued on Redis + worker
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedImportAccepted"
+
+  /v1/admin/feeds/jobs/{jobId}:
+    get:
+      operationId: getFeedImportJob
+      summary: Inspect durable ingest pipeline status (Postgres-backed)
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current job lifecycle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedImportJob"
+        "404":
+          description: Job not found
+
+  /v1/internal/jobs/reindex:
+    post:
+      operationId: reindexTenant
+      summary: Full or incremental reindex for tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReindexRequest"
+      responses:
+        "200":
+          description: Job metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReindexJobQueued"
+
+components:
+  schemas:
+    Pagination:
+      type: object
+      properties:
+        from:
+          type: integer
+          minimum: 0
+          default: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 24
+
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        tenantId:
+          type: string
+        query:
+          type: string
+        locale:
+          type: string
+          default: en-AE
+        filters:
+          type: object
+          additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    Interpretation:
+      type: object
+      properties:
+        lexicalWeight:
+          type: number
+          format: float
+        semanticWeight:
+          type: number
+          format: float
+
+    ProductCard:
+      type: object
+      additionalProperties: true
+      description: Canonical OpenSearch `_source` + optional UX metadata
+
+    SearchResponse:
+      type: object
+      properties:
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductCard"
+        facets:
+          type: object
+          additionalProperties: true
+        interpretation:
+          $ref: "#/components/schemas/Interpretation"
+        appliedFilters:
+          type: object
+          additionalProperties: true
+        total:
+          type: integer
+
+    AutocompleteResponse:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: string
+
+    AgentQueryRequest:
+      type: object
+      required: [tenantId, sessionId, message]
+      properties:
+        tenantId:
+          type: string
+        sessionId:
+          type: string
+        locale:
+          type: string
+          default: en-AE
+        message:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+
+    AgentQueryResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+        appliedFilters:
+          type: object
+          additionalProperties: true
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductCard"
+        followUpQuestion:
+          type: string
+          nullable: true
+
+    SearchEvent:
+      type: object
+      required: [tenantId, query]
+      properties:
+        tenantId:
+          type: string
+        sessionId:
+          type: string
+          nullable: true
+        query:
+          type: string
+        normalizedQuery:
+          type: string
+          nullable: true
+        locale:
+          type: string
+          nullable: true
+        filters:
+          type: object
+          additionalProperties: true
+        results:
+          type: array
+          items:
+            type: string
+        clickedProductId:
+          type: string
+          nullable: true
+        addedToCart:
+          type: boolean
+          nullable: true
+        converted:
+          type: boolean
+          nullable: true
+
+    SearchEventsBatch:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SearchEvent"
+
+    SearchEventsAccepted:
+      type: object
+      properties:
+        ingested:
+          type: integer
+        accepted:
+          type: boolean
+
+    FeedPresignRequest:
+      type: object
+      required: [tenantId, filename]
+      properties:
+        tenantId:
+          type: string
+        filename:
+          type: string
+
+    FeedPresignResponse:
+      type: object
+      properties:
+        uploadUrl:
+          type: string
+        bucket:
+          type: string
+        objectKey:
+          type: string
+        expiresIn:
+          type: integer
+
+    FeedImportRequest:
+      type: object
+      required: [tenantId, objectKey]
+      properties:
+        tenantId:
+          type: string
+        objectKey:
+          type: string
+          description: MinIO/S3 path returned from presign
+        originalFilename:
+          type: string
+          nullable: true
+        defaultMarket:
+          type: string
+          default: AE
+
+    FeedImportAccepted:
+      type: object
+      properties:
+        accepted:
+          type: boolean
+        jobId:
+          type: string
+        tenantId:
+          type: string
+
+    FeedImportJob:
+      type: object
+      properties:
+        jobId:
+          type: string
+        tenantId:
+          type: string
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        objectKey:
+          type: string
+        rowsProcessed:
+          type: integer
+          format: int64
+        rowsIndexed:
+          type: integer
+          format: int64
+        errorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    ReindexRequest:
+      type: object
+      required: [tenantId]
+      properties:
+        tenantId:
+          type: string
+        mode:
+          type: string
+          enum: [incremental, full]
+          default: incremental
+
+    ReindexJobQueued:
+      type: object
+      properties:
+        jobId:
+          type: string
+        tenantId:
+          type: string

@@ -1,0 +1,82 @@
+{
+  "index_patterns": ["commerce-products-*"],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": 2,
+        "number_of_replicas": 1,
+        "knn": true,
+        "knn.algo_param.ef_search": "100",
+        "knn.space_type": "cosinesimil"
+      }
+    },
+    "mappings": {
+      "dynamic": false,
+      "properties": {
+        "tenant_id": { "type": "keyword" },
+        "market": { "type": "keyword" },
+        "product_id": { "type": "keyword" },
+        "sku": {
+          "type": "keyword"
+        },
+        "title": {
+          "properties": {
+            "en": {
+              "type": "text",
+              "fields": {
+                "keyword": { "type": "keyword", "ignore_above": 256 }
+              },
+              "similarity": "BM25"
+            },
+            "ar": { "type": "text", "analyzer": "arabic", "similarity": "BM25" }
+          }
+        },
+        "description": {
+          "properties": {
+            "en": { "type": "text", "similarity": "BM25" },
+            "ar": { "type": "text", "analyzer": "arabic", "similarity": "BM25" }
+          }
+        },
+        "search_text": {
+          "properties": {
+            "en": { "type": "text", "similarity": "BM25" },
+            "ar": { "type": "text", "analyzer": "arabic", "similarity": "BM25" }
+          }
+        },
+        "attrs": {
+          "properties": {
+            "color": { "type": "keyword", "fields": { "keyword": { "type": "keyword" } } },
+            "size": { "type": "keyword" },
+            "materials": { "type": "keyword" },
+            "country_of_origin": { "type": "keyword" }
+          }
+        },
+        "pricing": {
+          "properties": {
+            "AE": { "type": "double" },
+            "SA": { "type": "double" }
+          }
+        },
+        "availability": { "type": "boolean" },
+        "popularity_score": { "type": "double" },
+        "embedding": {
+          "type": "knn_vector",
+          "dimension": 768,
+          "method": {
+            "name": "hnsw",
+            "space_type": "cosinesimil",
+            "engine": "lucene",
+            "parameters": { "ef_construction": 512, "m": 16 }
+          }
+        },
+        "created_at": { "type": "date" },
+        "updated_at": { "type": "date" },
+        "images": { "type": "keyword" }
+      }
+    }
+  },
+  "priority": 500,
+  "_meta": {
+    "description": "Commerce AI products template — BM25 text + bilingual fields + cosine kNN scaffold"
+  }
+}

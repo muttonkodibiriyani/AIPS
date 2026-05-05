@@ -1,0 +1,34 @@
+﻿name: Showcase CI
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "apps/showcase/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/showcase-ci.yml"
+  pull_request:
+    paths:
+      - "apps/showcase/**"
+
+jobs:
+  build-showcase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build showcase
+        run: pnpm --filter @commerce-ai/showcase build

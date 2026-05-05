@@ -1,0 +1,19 @@
+{
+  "name": "@commerce-ai/ui-components",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared UI primitives — optionally align with shadcn in Milestone 2",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "react": "^18.3.1",
+    "typescript": "^5.7.2"
+  }
+}

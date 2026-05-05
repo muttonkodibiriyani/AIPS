@@ -1,0 +1,22 @@
+{
+  "name": "@commerce-ai/search-react",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React hooks for Commerce AI — stub Milestone 1+",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@commerce-ai/search-js": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "react": "^18.3.1",
+    "typescript": "^5.7.2"
+  }
+}

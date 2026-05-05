@@ -1,0 +1,24 @@
+# Optional: deploy when you prefer Actions over Vercel’s Git integration.
+# Recommended: Import https://github.com/muttonkodibiriyani/AIPS in Vercel (auto-deploy on push).
+#
+# Secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID — see https://vercel.com/docs/guides/how-can-i-use-github-actions-with-vercel
+
+name: Deploy showcase to Vercel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy production
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: apps/showcase
+          vercel-args: "--prod"

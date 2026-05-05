@@ -1,0 +1,10 @@
+{
+  "name": "@commerce-ai/admin-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Merchant admin console stub — scaffold Next.js app in Milestone 2",
+  "scripts": {
+    "build": "node -e \"console.log('admin-web stub: no build yet')\"",
+    "dev": "node -e \"console.log('admin-web stub: run Next.js scaffold in Milestone 2'); setInterval(()=>{},999999)\""
+  }
+}

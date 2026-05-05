@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 12px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply antialiased bg-ink text-slate-200;
+}
+
+@layer utilities {
+  .glass {
+    @apply border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_10px_40px_-24px_rgba(0,0,0,.5)];
+  }
+  .glass-dark {
+    @apply border border-slate-800/80 bg-surface/95 backdrop-blur-md;
+  }
+}
+
+.text-gradient-warm {
+  @apply bg-gradient-to-r from-teal-200 via-emerald-300 to-amber-200 bg-clip-text text-transparent;
+}

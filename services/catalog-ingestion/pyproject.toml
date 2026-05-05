@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "commerce-ai-catalog-ingestion"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "commerce-ai-common",
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.32,<1",
+  "python-multipart>=0.0.9,<1",
+  "sqlalchemy>=2.0,<3",
+  "psycopg2-binary>=2.9,<3",
+  "redis>=5,<6",
+  "minio>=7.2,<8",
+  "opensearch-py>=2.7,<4",
+]
+
+[project.scripts]
+commerce-ingest-worker = "catalog_ingestion.worker:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.uv.sources]
+commerce-ai-common = { path = "../shared-python", editable = true }

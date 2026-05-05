@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Commerce AI — Ingest &amp; Search</title>
+    <style>
+      :root {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        color: #0f172a;
+        background: #e2e8f0;
+        line-height: 1.45;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 960px;
+        padding: 1.5rem;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      section {
+        background: #fff;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 1px 4px rgb(15 23 42 / 0.08);
+      }
+      label {
+        display: block;
+        margin: 0.25rem 0 0.15rem;
+        font-size: 0.875rem;
+        color: #334155;
+      }
+      input,
+      button {
+        font: inherit;
+      }
+      input[type="text"],
+      input[type="search"],
+      select {
+        width: 100%;
+        max-width: 28rem;
+        padding: 0.45rem 0.55rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+      }
+      button {
+        cursor: pointer;
+        padding: 0.55rem 1rem;
+        border-radius: 6px;
+        border: none;
+        background: #0f766e;
+        color: #fff;
+        margin-top: 0.5rem;
+        margin-right: 0.4rem;
+      }
+      button.secondary {
+        background: #334155;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      pre {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        overflow: auto;
+        font-size: 0.8125rem;
+        max-height: 220px;
+      }
+      .grid {
+        display: grid;
+        gap: 0.85rem;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      }
+      article.hit {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 0.6rem;
+        font-size: 0.875rem;
+        background: #f8fafc;
+      }
+      article.hit strong {
+        display: block;
+        margin-bottom: 0.35rem;
+      }
+      article.hit span {
+        display: block;
+        color: #64748b;
+        font-size: 0.8125rem;
+      }
+      .hint {
+        font-size: 0.8125rem;
+        color: #64748b;
+      }
+      .pill {
+        display: inline-block;
+        background: #e2e8f0;
+        border-radius: 999px;
+        padding: 0.1rem 0.45rem;
+        font-size: 0.72rem;
+        margin-right: 0.35rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Commerce AI — ingest &amp; search</h1>
+    <p class="hint">
+      Run Docker data plane (<code>infra/docker/docker-compose.yml</code>), apply the OpenSearch index template, start
+      <code>catalog-ingestion</code> (:8002), search-orchestrator (:8001), gateway (:3000). For uploads &gt;
+      ~200&nbsp;MB prefer the CLI snippet below instead of browser PUT.
+    </p>
+
+    <section>
+      <h2>1) Presign gzip CSV (.csv.gz)</h2>
+      <label>Tenant ID <input id="tenant" type="text" value="demo" /></label>
+      <label>Filename <input id="fname" type="text" placeholder="products.csv.gz" /></label>
+      <button id="btnPresign" type="button">Get upload URL</button>
+      <p class="hint">Response includes <code>uploadUrl</code> and <code>objectKey</code>.</p>
+      <pre id="outPresign">{}</pre>
+    </section>
+
+    <section>
+      <h2>2) Upload file → MinIO</h2>
+      <label><input id="pick" type="file" accept=".gz,.csv.gz" /></label>
+      <button id="btnPut" type="button" disabled>PUT to presigned URL</button>
+      <p class="hint">
+        Requires MinIO CORS for your storefront origin (<code>http://localhost:5173</code>). If PUT fails due to CORS,
+        use:
+      </p>
+      <pre>curl --request PUT \
+  --url "&lt;paste_uploadUrl_here&gt;" \
+  --upload-file ./your.csv.gz \
+  --header "Content-Encoding: gzip" \
+  --header "Content-Type: application/octet-stream"</pre>
+      <pre id="outPut">{}</pre>
+    </section>
+
+    <section>
+      <h2>3) Enqueue ingestion</h2>
+      <label>Paste objectKey</label>
+      <input id="objectKey" type="text" style="width: 100%" placeholder="feeds/demo/..." />
+      <button id="btnImport" type="button">Enqueue job</button>
+      <pre id="outImport">{}</pre>
+    </section>
+
+    <section>
+      <h2>4) Job status</h2>
+      <label>Paste jobId</label>
+      <input id="jobId" type="text" style="width: 100%" />
+      <button id="btnPoll" type="button" disabled>Poll status</button>
+      <button class="secondary" id="btnAuto" type="button" disabled>Auto-poll until done</button>
+      <pre id="outJob">{}</pre>
+    </section>
+
+    <section>
+      <h2>5) Hybrid search</h2>
+      <label><input id="q" type="search" placeholder="white vase under 200 aed" size="48" /></label>
+      <label>Market <select id="market"><option>AE</option><option>SA</option></select></label>
+      <button id="btnSearch" type="button">Search</button>
+      <p class="hint">Facets aggregate colors &amp; markets. Query parsing detects price caps + common colors.</p>
+      <pre id="outFacets"></pre>
+      <div id="hits" class="grid"></div>
+    </section>
+
+    <script src="./config.js"></script>
+    <script>
+      const cfg =
+        window.__COMMERCE_AI__ || ({ gatewayUrl: "http://localhost:3000", apiKey: "pk_stub", tenantDefault: "demo" });
+
+      const headers = () => ({
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + cfg.apiKey,
+      });
+
+      /** @type {null | Record<string,string>} */
+      let lastPresign = null;
+
+      document.getElementById("tenant").value = cfg.tenantDefault || "demo";
+
+      document.getElementById("btnPresign").onclick = async () => {
+        const tenantId = document.getElementById("tenant").value.trim();
+        const filename = document.getElementById("fname").value.trim();
+        const res = await fetch(cfg.gatewayUrl + "/v1/admin/feeds/presign", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ tenantId, filename }),
+        });
+        const json = await res.json();
+        document.getElementById("outPresign").textContent = JSON.stringify(json, null, 2);
+        lastPresign = json.uploadUrl ? json : null;
+        document.getElementById("btnPut").disabled = !(json.uploadUrl || json.upload_url);
+        if (json.objectKey || json.object_key)
+          document.getElementById("objectKey").value = json.objectKey || json.object_key;
+      };
+
+      document.getElementById("btnPut").onclick = async () => {
+        const pick = document.getElementById("pick").files[0];
+        if (!pick) {
+          alert("Choose a file first");
+          return;
+        }
+        const pres = lastPresign;
+        let url =
+          pres && (pres.uploadUrl || pres.upload_url)
+            ? pres.uploadUrl || pres.upload_url
+            : "";
+        const out = {};
+        try {
+          if (!url) {
+            out.error = "No presigned URL cached — hit Get upload URL.";
+          } else {
+            const resp = await fetch(url, {
+              method: "PUT",
+              headers: {
+                "Content-Type": pick.type || "application/octet-stream",
+              },
+              body: pick,
+            });
+            out.status = resp.status;
+            const t = await resp.text();
+            out.bodySnippet = (t || "").slice(0, 300);
+          }
+        } catch (e) {
+          out.error = String(e && e.message ? e.message : e);
+          out.note = "CORS/network — use curl mc cp or widen MinIO bucket CORS";
+        }
+        document.getElementById("outPut").textContent = JSON.stringify(out, null, 2);
+      };
+
+      document.getElementById("btnImport").onclick = async () => {
+        const tenantId = document.getElementById("tenant").value.trim();
+        const objectKey = document.getElementById("objectKey").value.trim();
+        const fname = document.getElementById("fname").value.trim();
+        const res = await fetch(cfg.gatewayUrl + "/v1/admin/feeds/import", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            tenantId,
+            objectKey,
+            originalFilename: fname || null,
+            defaultMarket: document.getElementById("market").value,
+          }),
+        });
+        const json = await res.json();
+        document.getElementById("outImport").textContent = JSON.stringify(json, null, 2);
+        const jid = json.jobId || json.job_id;
+        if (jid) {
+          document.getElementById("jobId").value = jid;
+          document.getElementById("btnPoll").disabled = false;
+          document.getElementById("btnAuto").disabled = false;
+        }
+      };
+
+      async function pollJobOnce() {
+        const jobId = document.getElementById("jobId").value.trim();
+        const res = await fetch(cfg.gatewayUrl + "/v1/admin/feeds/jobs/" + encodeURIComponent(jobId), {
+          headers: { Authorization: "Bearer " + cfg.apiKey },
+        });
+        return res.json();
+      }
+
+      document.getElementById("btnPoll").onclick = async () => {
+        document.getElementById("outJob").textContent = JSON.stringify(await pollJobOnce(), null, 2);
+      };
+
+      let autoPollTimer = null;
+      document.getElementById("btnAuto").onclick = () => {
+        if (autoPollTimer) {
+          clearInterval(autoPollTimer);
+          autoPollTimer = null;
+          return;
+        }
+        autoPollTimer = setInterval(async () => {
+          const j = await pollJobOnce();
+          document.getElementById("outJob").textContent = JSON.stringify(j, null, 2);
+          const st = j.status;
+          if (st === "completed" || st === "failed") {
+            clearInterval(autoPollTimer);
+            autoPollTimer = null;
+          }
+        }, 2500);
+      };
+
+      document.getElementById("btnSearch").onclick = async () => {
+        const query = document.getElementById("q").value;
+        const tenantId = document.getElementById("tenant").value.trim();
+        const market = document.getElementById("market").value;
+        const res = await fetch(cfg.gatewayUrl + "/v1/search", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            query,
+            tenantId,
+            locale: "en-AE",
+            context: { market },
+            pagination: { from: 0, size: 24 },
+          }),
+        });
+        const json = await res.json();
+
+        document.getElementById("outFacets").textContent = "Facets:\n" + JSON.stringify(json.facets || {}, null, 2);
+
+        const hits = document.getElementById("hits");
+        hits.innerHTML = "";
+        (json.products || []).forEach((p) => {
+          const tit = (p.title && (p.title.en || p.title.ar)) || "";
+          const sku = p.sku || p.product_id || "";
+          const el = document.createElement("article");
+          el.className = "hit";
+          el.innerHTML =
+            `<strong>${tit}</strong>` +
+            `<span class='pill'>${sku}</span>` +
+            `<span>Market ${p.market || ""}</span>` +
+            `<span>Avail ${String(p.availability)}</span>`;
+          hits.appendChild(el);
+        });
+      };
+    </script>
+  </body>
+</html>
