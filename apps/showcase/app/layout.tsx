@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Outfit, Fraunces } from "next/font/google";
 
 import "./globals.css";
+import { DeploymentEnvBanner } from "@/components/deployment-env-banner";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" className={`${outfit.variable} ${fraunces.variable}`}>
       <body className="font-sans min-h-screen flex flex-col">
         <SiteHeader />
+        <DeploymentEnvBanner />
         <main className="flex-1">{children}</main>
         <SiteFooter />
       </body>

@@ -35,20 +35,35 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
 [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) runs **`cd ../.. && npm install`** (npm workspaces from the repo root), then **`npm run build`** (Next in this app).
 
 1. [Vercel](https://vercel.com) → **Add New** → **Project** → import **muttonkodibiriyani/AIPS**.
-2. **Root Directory:** **`apps/showcase`**.
-3. **Environment variables** (Production + Preview):
+2. **Root Directory:** **`apps/showcase`** (your screenshot matches this). Optionally set **Framework Preset** to **Next.js**; **Other** is fine because [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) includes `"framework": "nextjs"` so the CLI build stays correct when the dashboard preset is **Other**.
+3. **Environment variables:** open **Project → Settings → Environment Variables** (scroll past Build & Development). Until `COMMERCE_GATEWAY_URL` is set **or** `SHOWCASE_DEMO_SEARCH=true`, the site shows a yellow **configuration banner** and search returns **`503`** (no demo).
 
-   | Name | Purpose |
-   |------|--------|
-   | `COMMERCE_GATEWAY_URL` | Public **HTTPS** base URL of Nest gateway (**omit** only if using demo mode below). |
-   | `COMMERCE_API_KEY` | Bearer key the gateway expects (stub often `pk_stub`). |
-   | `SHOWCASE_DEMO_SEARCH` | Optional **`true`**: serves **fixed sample SKUs** from **`/api/search`** when **`COMMERCE_GATEWAY_URL`** is unset (SLT UI rehearsal, **not** production). Remove or set `false` for live catalog. |
+   **Minimal rows to add (recommended for SLT rehearsal before the gateway exists):**
+
+   | Key | Value | Apply to |
+   |-----|--------|----------|
+   | `SHOWCASE_DEMO_SEARCH` | `true` | Production · Preview · Development |
+
+   Click **Save** for each row, then **Deployments → … → Redeploy** — **environment variables apply only after a redeploy.**
+
+   **When the Nest gateway is on HTTPS:**
+
+   | Key | Example value | Notes |
+   |-----|----------------|------|
+   | `COMMERCE_GATEWAY_URL` | `https://your-api.example.com` | No trailing slash. Must be reachable from Vercel servers. |
+   | `COMMERCE_API_KEY` | `pk_stub` | Match the gateway’s API key checker. Same value for ingest/Swagger curl. |
+   | `SHOWCASE_DEMO_SEARCH` | `false` or delete | Disables fake SKUs; `/api/search` proxies to **`/v1/search`**. |
 
 4. **Node.js:** **20.x** (see [`engines`](./package.json) and [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions)).
 
-5. Clear **Install** / **Build** **overrides** in **Project → Settings → Build & Development** so [`vercel.json`](./apps/showcase/vercel.json) drives the pipeline.
+5. Keep **Install** / **Build** overrides **OFF** under **Build & Development** so **`cd ../.. && npm install`** and **`npm run build`** from [`vercel.json`](./apps/showcase/vercel.json) apply.
 
 6. Deploy. Subsequent pushes redeploy automatically.
+
+Validate from the deployed URL:
+
+- **`GET /api/health`** — `{ "gatewayConfigured", "demoSearchEnabled", "liveSearchAvailable" }` (never returns secrets).
+
 
 Install uses **`npm`** + **workspace** installs from repo root (**`pnpm`** hits **`ERR_INVALID_THIS`** on many Vercel builders). Root [`package.json`](./package.json) does **not** set **`packageManager`**, so **`npm`** is the default unless you override Install in the dashboard. Local **`pnpm`** is still supported via [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
 
