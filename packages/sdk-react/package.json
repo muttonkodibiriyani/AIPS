@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@commerce-ai/search-js": "workspace:*"
+    "@commerce-ai/search-js": "file:../sdk-js"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",

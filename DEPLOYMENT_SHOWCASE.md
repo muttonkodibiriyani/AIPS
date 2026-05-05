@@ -46,6 +46,8 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
 
    Click **Save** for each row, then **Deployments → … → Redeploy** — **environment variables apply only after a redeploy.**
 
+   You do **not** need **Sensitive** for `SHOWCASE_DEMO_SEARCH=true` or `COMMERCE_GATEWAY_URL` (both are usually non‑secret demo flags); use Sensitive only if your team policy requires masking `COMMERCE_API_KEY`.
+
    **When the Nest gateway is on HTTPS:**
 
    | Key | Example value | Notes |
@@ -162,6 +164,12 @@ Or `pnpm install` locally if you prefer. Set `COMMERCE_GATEWAY_URL` and `COMMERC
 2. Do **not** force **`pnpm`** in the dashboard when this repo configures **`npm`** from [`apps/showcase/vercel.json`](./apps/showcase/vercel.json).
 3. **`pnpm install`** errors with **`ERR_INVALID_THIS`** / **`URLSearchParams`**: stick to **npm** on Vercel (as configured); use **Node 20.x**.
 4. Log shows **`next: command not found`**: monorepo install did not finish or Root Directory pointed at `.` — fix Root Directory + clear Install overrides.
+
+---
+
+## Troubleshooting: **`npm error Unsupported URL Type "workspace:"`**
+
+[`npm install`](./apps/showcase/vercel.json) on Vercel can fail if any workspace package declares **`workspace:*`** dependencies — the builder’s **`npm`** may reject that protocol (**`EUNSUPPORTEDPROTOCOL`**). Package [`packages/sdk-js`](./packages/sdk-js/package.json) and [`packages/sdk-react`](./packages/sdk-react/package.json) use **`file:../shared-types`** and **`file:../sdk-js`** instead. Deploy from latest **`main`**.
 
 ---
 

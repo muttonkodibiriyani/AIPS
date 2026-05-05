@@ -10,7 +10,7 @@
     "dev": "tsc -p tsconfig.json -w"
   },
   "dependencies": {
-    "@commerce-ai/shared-types": "workspace:*"
+    "@commerce-ai/shared-types": "file:../shared-types"
   },
   "devDependencies": {
     "typescript": "^5.7.2"
