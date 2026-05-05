@@ -45,7 +45,9 @@ If Root Directory is **`.`** but **Project → Settings → Build & Development*
    | `COMMERCE_GATEWAY_URL` | Public HTTPS base URL of Nest gateway (must be reachable by Vercel’s build/runtime, e.g. `https://api.yourdomain.com`) |
    | `COMMERCE_API_KEY` | Same bearer key configured on the gateway (stub default often `pk_stub` in local `.env`). |
 
-4. Deploy. Subsequent pushes to the connected branch redeploy automatically.
+4. **Node.js version:** Vercel must use **Node 20.x** for `pnpm install` (Node 22 + pnpm 9 can fail with `ERR_INVALID_THIS` / `URLSearchParams` when talking to the npm registry). The repo pins this via **`engines.node`** in [`package.json`](./package.json) and [`apps/showcase/package.json`](./apps/showcase/package.json) plus [`.nvmrc`](./.nvmrc). If a deployment still uses Node 22, set **Project → Settings → General → Node.js Version** to **20.x** explicitly.
+
+5. Deploy. Subsequent pushes to the connected branch redeploy automatically.
 
 [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) applies when the Vercel **Root Directory** is `apps/showcase`. The repo root [`vercel.json`](./vercel.json) applies when the root directory is **`.`**.
 
@@ -138,6 +140,7 @@ Set `COMMERCE_GATEWAY_URL` and `COMMERCE_API_KEY` in the process environment. Se
 2. If the commit is older (for example **`e6585f0`**), Vercel is redeploying a stale revision. Fix: **Project → Deployments →** open the newest deployment produced by a **push** to **`main`**, or **Redeploy** from the dashboard after selecting **the latest Git commit**. Do **not** only “Redo” an old deployment.
 3. In **Project Settings → Git**, confirm the repo is **`muttonkodibiriyani/AIPS`**, production branch **`main`**, and **Root Directory** **`apps/showcase`** (or **`./`** if you use root [`vercel.json`](./vercel.json)).
 4. Log shows **`Running "npm run build"`** → **`next: command not found`**: you are building from the repo root with **npm** + full Turbo instead of **`pnpm`** + showcase only. Use root [`vercel.json`](./vercel.json) and clear dashboard build overrides, **or** set Root Directory to **`apps/showcase`**.
+5. **`pnpm install` fails** with **`ERR_INVALID_THIS`**, **`ERR_PNPM_META_FETCH_FAIL`**, or **`Value of "this" must be of type URLSearchParams`**: the build is almost certainly on **Node 22** while using **pnpm 9**. Use **Node 20.x** (see deploy step **4** above: `engines` / **Project → Settings → General → Node.js Version**).
 
 [GitHub `main`/package.json](https://github.com/muttonkodibiriyani/AIPS/blob/main/package.json) must parse as strict JSON (no trailing commas).
 
