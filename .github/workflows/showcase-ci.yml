@@ -6,6 +6,7 @@ on:
     paths:
       - "apps/showcase/**"
       - "package.json"
+      - ".npmrc"
       - "pnpm-workspace.yaml"
       - "scripts/**"
       - "vercel.json"
@@ -14,6 +15,7 @@ on:
     paths:
       - "apps/showcase/**"
       - "package.json"
+      - ".npmrc"
       - "pnpm-workspace.yaml"
       - "vercel.json"
       - "scripts/**"

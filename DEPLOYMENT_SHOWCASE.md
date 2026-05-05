@@ -49,7 +49,7 @@ If Root Directory is **`.`** but **Project → Settings → Build & Development*
 
 5. Deploy. Subsequent pushes to the connected branch redeploy automatically.
 
-Install on Vercel uses **`npm`** + **workspaces** (not `pnpm`) because `pnpm` registry fetches intermittently fail on Vercel with **`ERR_INVALID_THIS`** / **`URLSearchParams`**. Local development can still use **`pnpm`** (`pnpm-workspace.yaml` is unchanged).
+Install on Vercel uses **`npm`** + **workspaces** (not `pnpm`) because **`pnpm`** registry fetches intermittently fail on Vercel (**`ERR_INVALID_THIS`** / **`URLSearchParams`**). The repo does **not** set **`packageManager`** in [`package.json`](./package.json), so the platform defaults to **npm** unless you override Install in the dashboard. Local development can still use **`pnpm`** (`pnpm-workspace.yaml` is unchanged).
 
 [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) applies when the Vercel **Root Directory** is `apps/showcase`. The repo root [`vercel.json`](./vercel.json) applies when the root directory is **`.`**.
 
