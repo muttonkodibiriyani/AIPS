@@ -142,15 +142,23 @@ More detail: [`services/catalog-ingestion/README.md`](./services/catalog-ingesti
 
 ## 6. CSV-backed demo on Vercel (**no production API key**)
 
-1. Put your export at **[`apps/showcase/data/catalog.csv`](./apps/showcase/data/catalog.csv)** (UTF-8 CSV, header row).
+1. Keep **[`catalog.sample.csv`](./apps/showcase/data/catalog.sample.csv)** in the repo. For real data, **`apps/showcase/data/catalog.csv`** is **ignored by git** — copy/rename the sample locally or place your UTF‑8 export there (SKU, names, **image links**, colour, market, prices — aligned with ingestion [`canonical.py`](./services/catalog-ingestion/catalog_ingestion/canonical.py)).
 
-   Headers align with the ingestion canon (see [`canonical.py`](./services/catalog-ingestion/catalog_ingestion/canonical.py)): e.g. **`product_id`** or **`sku`**, **`name`**, **`name (ar)`**, **`image links`** (pipes/commas for multiple URLs), **`color`**, **`market`**, **`price.ae`** / **`price.sa`**, **`availability`**, **`long description`**.
+   Headers align with the ingestion canon (see [`canonical.py`](./services/catalog-ingestion/catalog_ingestion/canonical.py)): e.g. **`id` / `product_id`** or **`sku`**, **`name`**, **`name (ar)`**, **`image links`** (pipes/commas for multiple HTTPS URLs — shown in UI as product thumbnails), **`color`**, **`market`**, **`price ae`** / **`price sa`**, **`availability`**, **`long description`**.
 
-2. Every **`npm run build`** for the showcase runs **`prebuild`** → [`scripts/generate-demo-catalog-from-csv.mjs`](./scripts/generate-demo-catalog-from-csv.mjs) → refreshes **`apps/showcase/lib/demo-catalog.json`** (committed or regenerates on CI/Vercel).
+2. **`prebuild`** streams the CSV (**no full RAM load**) into **`apps/showcase/lib/demo-catalog.json`**. Builds still commit or regenerate JSON on CI/Vercel.
 
-3. **`POST /api/search`** reads that JSON in-process when **`COMMERCE_GATEWAY_URL`** is unset (**no env vars required**). Optional: **`SHOWCASE_CATALOG_CSV`** points to another path relative to repo root during build only. Very large exports may exceed the serverless bundle size — split files or switch to gateway + ingest later.
+   **Huge files (> ~20 MB on disk)** are **row-capped automatically** (**25 000** products by default) so bundles stay within serverless limits. Override per environment with **`SHOWCASE_DEMO_ROW_LIMIT`** (positive integer); **`SHOWCASE_DEMO_ROW_LIMIT=0`** means uncapped (**OOM risk** on multi‑million-row files). For museum-scale accuracy and retrieval, ingest the gzipped CSV through the gateway (§5 + OpenSearch) and set **`COMMERCE_GATEWAY_URL`**.
 
-4. Push to GitHub; Vercel redeploy builds the bundle. Optional env **`SHOWCASE_DEMO_SEARCH=true`** only matters if **`catalog.csv` is empty** (falls back to a tiny hardcoded stub list).
+   **GitHub:** files over **100 MB** cannot be pushed as normal blobs. Prefer **[Git LFS](https://docs.github.com/articles/working-with-large-files)** for very large **`catalog.csv`**, or host the gzipped artifact in MinIO/Vercel Blob and only ingest (never commit raw multi‑GB exports).
+
+3. **`POST /api/search`** reads that JSON when **`COMMERCE_GATEWAY_URL`** is unset. Optional **`SHOWCASE_CATALOG_CSV`** selects another CSV path relative to repo root **at build only**.
+
+   The sticky **header search bar** submits to the same **`/api/search`** path as the live playground; **`/?q=`** deep-links hydrate the playground.
+
+4. **`GET /api/health`** exposes **`csvCatalogRows`**, **`csvCatalogTruncated`**, **`csvCatalogRowCap`** so you can confirm cap behaviour on Preview/Production builds.
+
+5. Push to GitHub (respecting Git LFS or size caps); Vercel redeploy runs **`prebuild`**. **`SHOWCASE_DEMO_SEARCH=true`** only matters when **`catalog.csv` is absent** **and** the generated JSON has **zero** rows (stub fallback).
 
 Locally refresh JSON without full build:
 

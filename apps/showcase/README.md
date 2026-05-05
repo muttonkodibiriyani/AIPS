@@ -4,7 +4,7 @@ Executive narrative + live **natural-language search** via **`POST /api/search`*
 
 ## CSV demo (no Nest / no API key)
 
-1. Replace **[`data/catalog.csv`](./data/catalog.csv)** with your UTF‑8 export (SKU, names, **image links**, colour, market, prices — aligned with ingestion [`canonical.py`](../../services/catalog-ingestion/catalog_ingestion/canonical.py)).
+1. Copy **`data/catalog.sample.csv` → `data/catalog.csv`** (or drop your merchant export as **`catalog.csv`**). The **`catalog.csv`** path is **gitignored** for large files; **`lib/demo-catalog.json`** is regenerated locally from it.
 2. From repo root:
 
 ```bash
@@ -15,7 +15,7 @@ npm run dev -w @commerce-ai/showcase
 
 3. Leave **`COMMERCE_GATEWAY_URL`** unset in `.env.local` — search runs **in-process** over the generated JSON.
 
-On **Vercel**, `prebuild` runs the same generator; **no env vars** are required for the CSV path.
+On **Vercel**, `prebuild` runs the generator. If **`catalog.csv` is not in the checkout**, the committed **`demo-catalog.json`** is kept (so CI deploys ship a capped catalog snapshot). Oversized CSVs (> ~20 MB) are streamed with a **25 000** row cap unless **`SHOWCASE_DEMO_ROW_LIMIT`** overrides.
 
 ## Local (with real gateway)
 

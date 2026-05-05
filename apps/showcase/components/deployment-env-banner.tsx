@@ -8,6 +8,8 @@ type Health = {
   demoSearchEnabled: boolean;
   liveSearchAvailable: boolean;
   csvCatalogRows?: number;
+  csvCatalogTruncated?: boolean;
+  csvCatalogRowCap?: number | null;
   offlineSearchAvailable?: boolean;
   gitCommit?: string | null;
 };
@@ -61,9 +63,17 @@ export function DeploymentEnvBanner() {
         <p className="inline-flex flex-wrap items-center justify-center gap-2">
           <Sparkles className="size-4 shrink-0 text-sky-300" aria-hidden />
           <span>
-            <strong>CSV demo catalog</strong> — {health.csvCatalogRows} products bundled at build (no production API
-            key). Replace <span className="font-mono text-[11px]">apps/showcase/data/catalog.csv</span> with your file,
-            push, redeploy.
+            <strong>CSV demo catalog</strong> — {health.csvCatalogRows?.toLocaleString()} products bundled at build (no
+            production API key).
+            {health.csvCatalogTruncated ? (
+              <>
+                {" "}
+                Row cap <span className="font-mono text-[11px]">{health.csvCatalogRowCap?.toLocaleString() ?? "—"}</span>{" "}
+                (large file). Use gateway + ingest for the full catalog.
+              </>
+            ) : null}{" "}
+            Replace <span className="font-mono text-[11px]">apps/showcase/data/catalog.csv</span> with your file, push,
+            redeploy.
           </span>
         </p>
         <DeployRev sha={health.gitCommit} />

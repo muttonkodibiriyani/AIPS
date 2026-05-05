@@ -12,17 +12,103 @@ type ProductRecord = {
   _score?: number;
 };
 
+export type DemoCatalogBuildMeta = {
+  csvApproxBytes?: number;
+  limitApplied?: number | null;
+  truncated?: boolean;
+  hint?: string | null;
+  empty?: boolean;
+};
+
 export type DemoCatalogFile = {
   generatedAt?: string;
   rowCount?: number;
   products: ProductRecord[];
+  buildMeta?: DemoCatalogBuildMeta;
 };
 
-function tokens(s: string): string[] {
-  return s
+const STOP = new Set(
+  (
+    [
+      "a",
+      "an",
+      "the",
+      "for",
+      "and",
+      "or",
+      "with",
+      "under",
+      "below",
+      "than",
+      "less",
+      "more",
+      "from",
+      "that",
+      "this",
+      "these",
+      "those",
+      "into",
+      "about",
+      "some",
+      "any",
+      "my",
+      "your",
+      "our",
+      "me",
+      "to",
+      "in",
+      "on",
+      "of",
+      "at",
+      "by",
+      "is",
+      "are",
+      "be",
+      "as",
+      "it",
+      "we",
+      "you",
+      "looking",
+      "want",
+      "need",
+      "show",
+      "find",
+      "give",
+      "something",
+      "please",
+      "gift",
+      "bedroom",
+      "living",
+      "room",
+    ] satisfies string[]
+  ).map((s) => s.toLowerCase()),
+);
+
+function normalizeQueryPhrase(q: string): string {
+  return q
     .toLowerCase()
-    .split(/[^a-z0-9\u0080-\uFFFF]+/i)
-    .filter((t) => t.length >= 2);
+    .replace(/[^\s\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Meaningful lexical tokens — drops stopwords and 1-letter noise; keeps Arabic/Unicode words. */
+function queryTokens(raw: string): string[] {
+  const lowered = normalizeQueryPhrase(raw)
+    .split(/[^\p{L}\p{N}]+/gu)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2 && !STOP.has(t));
+  /** Deduplicate while preserving order */
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of lowered) {
+    const k = t.toLowerCase();
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(k);
+    }
+  }
+  return out.slice(0, 36);
 }
 
 function priceMax(pricing: Record<string, number> | undefined): number {
@@ -32,7 +118,7 @@ function priceMax(pricing: Record<string, number> | undefined): number {
   return Math.max(...vals);
 }
 
-/** Naive "under N AED/SAR" from query */
+/** Extract "under/below N (SAR|AED|…)" from natural language. */
 function extractPriceCap(query: string): number | null {
   const m = query.match(/\b(?:under|below|less than|<)\s*([\d.,]+)\s*(aed|sar|د\.إ|ر\.س)?/i);
   if (!m) return null;
@@ -58,12 +144,87 @@ function colorHint(query: string): string | null {
     "silver",
     "cream",
     "navy",
+    "purple",
+    "yellow",
+    "orange",
+    "teal",
   ];
   const q = query.toLowerCase();
+  let best: string | null = null;
   for (const c of colors) {
-    if (q.includes(c)) return c;
+    if (!q.includes(c)) continue;
+    if (!best || c.length > best.length) best = c;
   }
-  return null;
+  return best;
+}
+
+function skuTokenNorm(sku: string): string {
+  return sku.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/** Count overlaps of consecutive token pairs for soft phrase match. */
+function consecutivePairHits(tokens: string[], hay: string): number {
+  if (tokens.length < 2) return 0;
+  let h = 0;
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const a = tokens[i] ?? "";
+    const b = tokens[i + 1] ?? "";
+    if (`${a} ${b}`.trim() === "") continue;
+    if (hay.includes(`${a} ${b}`)) h += 1;
+  }
+  return h;
+}
+
+function scoreDoc(
+  p: ProductRecord,
+  phrase: string,
+  qtok: string[],
+  colorWant: string | null,
+): number {
+  const hay = p.search_text;
+  const titleEn = p.title.en.toLowerCase();
+  const titleAr = (p.title.ar || "").toLowerCase();
+  const skuN = skuTokenNorm(String(p.sku || ""));
+  const skuDisplay = String(p.sku || "").toLowerCase();
+
+  let score = 0;
+
+  if (phrase.length >= 3) {
+    if (titleEn.includes(phrase) || titleAr.includes(phrase)) score += 48;
+    else if (hay.includes(phrase)) score += 22;
+  }
+
+  score += consecutivePairHits(qtok, hay) * 12;
+  score += consecutivePairHits(qtok, titleEn) * 18;
+
+  const asciiTok = /^[a-z][a-z0-9_-]*$/i;
+  for (const t of qtok) {
+    const inTitle = titleEn.includes(t) || titleAr.includes(t);
+    const inHay = hay.includes(t);
+    if (inTitle) score += 9;
+    if (inHay) score += 4;
+
+    if (asciiTok.test(t)) {
+      const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "iu");
+      if (re.test(titleEn) || re.test(titleAr)) score += 6;
+      if (re.test(hay)) score += 2;
+    }
+  }
+
+  if (skuDisplay && phrase.length >= 4) {
+    if (skuDisplay.includes(phrase.replace(/\s+/g, ""))) score += 35;
+    for (const t of qtok) {
+      if (t.length >= 4 && skuN.includes(t.replace(/[^\p{L}\p{N}]/gu, ""))) score += 28;
+    }
+  }
+
+  if (colorWant) {
+    const colorField = (p.attrs?.color || "").toLowerCase();
+    if (colorField.includes(colorWant)) score += 14;
+    else if (hay.includes(colorWant)) score += 6;
+  }
+
+  return score;
 }
 
 export function searchCsvDemoCatalog(
@@ -82,12 +243,11 @@ export function searchCsvDemoCatalog(
   const size = Math.min(pagination.size ?? 24, 100);
   const cap = extractPriceCap(query);
   const colorWant = colorHint(query);
-  const qtok = tokens(query);
+  const phrase = normalizeQueryPhrase(query);
+  const qtok = queryTokens(query);
 
-  /** Bundled CSV demo is marketplace-agnostic; NL playground tenant is ignored here. */
   let filtered = [...items];
 
-  /** price cap — use max of aed/sar on product */
   if (cap != null) {
     filtered = filtered.filter((p) => priceMax(p.pricing) <= cap);
   }
@@ -100,32 +260,26 @@ export function searchCsvDemoCatalog(
     });
   }
 
-  /** score */
   const scored =
-    qtok.length === 0
+    qtok.length === 0 && phrase.length < 2
       ? filtered.map((p) => ({ ...p, _score: 1 }))
       : filtered.map((p) => {
-          let score = 0;
-          const hay = p.search_text;
-          const titleEn = p.title.en.toLowerCase();
-          for (const t of qtok) {
-            if (hay.includes(t)) score += 2;
-            if (titleEn.includes(t)) score += 5;
-            if (p.sku.toLowerCase().includes(t)) score += 6;
-          }
-          return { ...p, _score: score };
+          const s = scoreDoc(p, phrase, qtok, colorWant);
+          return { ...p, _score: s };
         });
 
   scored.sort((a, b) => (b._score ?? 0) - (a._score ?? 0));
 
-  /** empty query → show all capped */
   let page = scored;
-  if (qtok.length > 0) {
+  if (qtok.length > 0 || phrase.length >= 2) {
     page = scored.filter((p) => (p._score ?? 0) > 0);
   }
-  /** if tokenizer killed everything but user typed something meaningful, fuzzy fallback */
-  if (qtok.length > 1 && page.length === 0) {
-    page = scored.filter((p) => query.length >= 3 && p.search_text.includes(query.trim().toLowerCase()));
+
+  if (qtok.length > 0 && page.length === 0) {
+    const needle = phrase.replace(/\s+/g, " ");
+    if (needle.length >= 3) {
+      page = scored.filter((p) => p.search_text.includes(needle) || p.title.en.toLowerCase().includes(needle));
+    }
   }
 
   const total = page.length;
@@ -144,6 +298,8 @@ export function searchCsvDemoCatalog(
       priceCap: cap,
       colorHint: colorWant,
       queryTokens: qtok.slice(0, 12),
+      phrase,
+      catalogBuildMeta: catalog.buildMeta ?? null,
     },
   };
 }

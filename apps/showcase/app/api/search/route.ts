@@ -23,7 +23,7 @@ function csvSearchResponse(body: Record<string, unknown>) {
     total: r.total,
     appliedFilters: {
       ...r.appliedFilters,
-      hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Set COMMERCE_GATEWAY_URL for live API.",
+      hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
     },
     interpretation: { lexicalWeight: 1, semanticWeight: 0 },
   });

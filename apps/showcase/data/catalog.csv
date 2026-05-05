@@ -1,5 +1,0 @@
-product_id,sku,name,name (ar),image links,color,market,price.ae,availability,long description
-DEMO-VASE-01,VASE-WHT-01,Minimal stoneware vase white,مزهرية بيضاء,https://placehold.co/400x400/png?text=Vase+1|https://placehold.co/200x200/png?text=Vase+2,white,AE,189,true,Rounded silhouette for tabletop styling
-DEMO-JKT-02,JKT-BLU-M,Denim jacket indigo men's M,سترة جينز رجالية,https://placehold.co/400x400/png?text=Jacket,blue,SA,449,true,Washed denim layer for weekend wear
-DEMO-TBL-03,TOWL-ORG-Q,Organic bath towel quartet,مجموعة مناشف قطنية,https://placehold.co/400x400/png?text=Towel,grey,AE,239,true,GSM 600 quick dry bundle
-DEMO-BAG-04,BAG-LTH-BLK,Compact leather crossbody black,حقيبة صغيرة,https://placehold.co/400x400/png?text=Bag,black,AE,559,false,Italian grain leather commuter

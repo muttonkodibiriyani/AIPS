@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ChevronDown, Cpu, Filter, Loader2, Search, Wand2 } from "lucide-react";
 
@@ -57,38 +57,62 @@ export function NLSearchDemo() {
     message?: string;
   } | null>(null);
 
-  const search = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId: tenant,
-          locale,
-          query,
-          context: { market, lexicalWeight: 0.45, semanticWeight: 0.55 },
-          pagination: { from: 0, size: 12 },
-        }),
-      });
-      const json = (await res.json()) as {
-        products?: ProductHit[];
-        facets?: Record<string, { key?: string; count?: number }[]>;
-        total?: number;
-        appliedFilters?: Record<string, unknown>;
-        error?: string;
-        message?: string;
-      };
-      setData(json);
-      if (!res.ok) setError(json.message || json.error || `Search failed (${res.status})`);
-    } catch {
-      setError("Network error — is the gateway reachable?");
-      setData(null);
-    } finally {
-      setLoading(false);
+  const search = useCallback(
+    async (queryOverride?: string) => {
+      const qText = (queryOverride ?? query).trim();
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId: tenant,
+            locale,
+            query: qText,
+            context: { market, lexicalWeight: 0.45, semanticWeight: 0.55 },
+            pagination: { from: 0, size: 12 },
+          }),
+        });
+        const json = (await res.json()) as {
+          products?: ProductHit[];
+          facets?: Record<string, { key?: string; count?: number }[]>;
+          total?: number;
+          appliedFilters?: Record<string, unknown>;
+          error?: string;
+          message?: string;
+        };
+        setData(json);
+        if (!res.ok) setError(json.message || json.error || `Search failed (${res.status})`);
+      } catch {
+        setError("Network error — is the gateway reachable?");
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [tenant, locale, query, market],
+  );
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")?.trim();
+    if (!q) return;
+    setQuery(q);
+    void search(q);
+    // Bootstrap only — header search drives follow-up queries via showcase-run-search
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    function onRun(e: Event) {
+      const detail = (e as CustomEvent<{ query?: string }>).detail?.query?.trim();
+      if (!detail) return;
+      setQuery(detail);
+      void search(detail);
     }
-  }, [tenant, locale, query, market]);
+    window.addEventListener("showcase-run-search", onRun);
+    return () => window.removeEventListener("showcase-run-search", onRun);
+  }, [search]);
 
   const products = data?.products ?? [];
   const facets = data?.facets ?? {};

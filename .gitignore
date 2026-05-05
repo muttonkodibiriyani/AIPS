@@ -18,3 +18,6 @@ coverage/
 *.log
 .DS_Store
 .idea/
+
+# Merchant-scale catalog exports (often 100MB–1GB+). Use Git LFS or ingest-only; see DEPLOYMENT_SHOWCASE.md §6.
+apps/showcase/data/catalog.csv

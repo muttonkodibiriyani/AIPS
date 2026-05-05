@@ -3,19 +3,26 @@
  * Run from repo root via: node scripts/generate-demo-catalog-from-csv.mjs
  * Or automatically: npm run build in apps/showcase (prebuild hook).
  *
- * Env: SHOWCASE_CATALOG_CSV=absolute-or-repo-relative path overrides default.
+ * Env:
+ *   SHOWCASE_CATALOG_CSV — absolute or repo-relative path (default: apps/showcase/data/catalog.csv).
+ *   SHOWCASE_DEMO_ROW_LIMIT — max products to emit (overrides auto cap for large CSVs). Set "0" for no limit (OOM risk on huge files).
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { createReadStream } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parse } from "csv-parse/sync";
+import { parse } from "csv-parse";
 
 const __root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const DEFAULT_CSV = join(__root, "apps/showcase/data/catalog.csv");
 const OUT_DIR = join(__root, "apps/showcase/lib");
 const OUT_FILE = join(OUT_DIR, "demo-catalog.json");
+
+/** Auto-cap when CSV is large and SHOWCASE_DEMO_ROW_LIMIT is unset. Keeps Vercel bundle + Node heap sane. */
+const LARGE_CSV_BYTES = 20 * 1024 * 1024;
+const DEFAULT_CAP_FOR_LARGE_CSV = 25_000;
 
 const HEADER_ALIASES = /** @type {Record<string, string>} */ ({
   id: "product_id",
@@ -28,13 +35,15 @@ const HEADER_ALIASES = /** @type {Record<string, string>} */ ({
   "long description (ar)": "desc_ar",
   composition: "composition",
   "image links": "image_links",
-  "image_links": "image_links",
+  image_links: "image_links",
   images: "image_links",
   url: "image_links",
   image: "image_links",
   color: "color",
   size: "size",
   "country of origin": "country_of_origin",
+  "price ae": "price_ae",
+  "price sa": "price_sa",
   "price.ae": "price_ae",
   "price.sa": "price_sa",
   "pricing.ae": "price_ae",
@@ -70,7 +79,12 @@ function splitImages(links) {
   if (!links) return [];
   return String(links)
     .split(/[|;,\n]+/g)
-    .map((s) => s.trim())
+    .map((s) =>
+      String(s)
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .replace(/,\s*$/, ""),
+    )
     .filter(Boolean)
     .slice(0, 24);
 }
@@ -149,7 +163,42 @@ function rowToProduct(row) {
   };
 }
 
-function main() {
+/** @param {string | undefined} raw */
+function resolveRowLimit(csvPath, bytes) {
+  const raw = process.env.SHOWCASE_DEMO_ROW_LIMIT;
+  if (raw !== undefined && raw !== "") {
+    const n = parseInt(String(raw), 10);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+  }
+  if (bytes > LARGE_CSV_BYTES) return DEFAULT_CAP_FOR_LARGE_CSV;
+  return null;
+}
+
+async function streamCsvToProducts(csvPath, maxRows) {
+  /** @type {unknown[]} */
+  const products = [];
+
+  const parser = createReadStream(csvPath).pipe(
+    parse({
+      columns: true,
+      skip_empty_lines: true,
+      relax_quotes: true,
+      trim: true,
+    }),
+  );
+
+  for await (const rawRow of parser) {
+    const aliased = aliasRow(/** @type {Record<string, string>} */ (rawRow));
+    const p = rowToProduct(aliased);
+    if (p) products.push(p);
+    if (maxRows != null && products.length >= maxRows) break;
+  }
+
+  return products;
+}
+
+async function main() {
   const csvPath = process.env.SHOWCASE_CATALOG_CSV
     ? isAbsolute(process.env.SHOWCASE_CATALOG_CSV)
       ? process.env.SHOWCASE_CATALOG_CSV
@@ -157,40 +206,68 @@ function main() {
     : DEFAULT_CSV;
 
   if (!existsSync(csvPath)) {
-    console.warn(`[demo-catalog] No CSV at ${csvPath} — writing empty catalog. Add apps/showcase/data/catalog.csv and redeploy.`);
+    if (existsSync(OUT_FILE)) {
+      try {
+        const cur = JSON.parse(readFileSync(OUT_FILE, "utf8"));
+        const n = Array.isArray(cur?.products) ? cur.products.length : 0;
+        console.warn(`[demo-catalog] No CSV at ${csvPath} — keeping committed ${OUT_FILE} (${n} products).`);
+        return;
+      } catch {
+        /* fall through — rewrite empty */
+      }
+    }
+    console.warn(`[demo-catalog] No CSV at ${csvPath} — writing empty catalog. Add CSV locally or commit demo-catalog.json.`);
     mkdirSync(OUT_DIR, { recursive: true });
     writeFileSync(
       OUT_FILE,
-      JSON.stringify({ generatedAt: new Date().toISOString(), rowCount: 0, products: [] }, null, 2),
+      JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          rowCount: 0,
+          products: [],
+          buildMeta: { empty: true, csvPathRelative: csvPath.replace(__root + "\\", "").replace(__root + "/", "") },
+        },
+        null,
+        2,
+      ),
       "utf8",
     );
     return;
   }
 
-  const raw = readFileSync(csvPath, "utf8");
-  const rows = parse(raw, {
-    columns: true,
-    skip_empty_lines: true,
-    relax_quotes: true,
-    trim: true,
-  });
-
-  /** @type {unknown[]} */
-  const products = [];
-  for (const rawRow of rows) {
-    const aliased = aliasRow(/** @type {Record<string, string>} */ (rawRow));
-    const p = rowToProduct(aliased);
-    if (p) products.push(p);
+  let bytes = 0;
+  try {
+    bytes = statSync(csvPath).size;
+  } catch {
+    bytes = 0;
   }
+
+  const maxRows = resolveRowLimit(csvPath, bytes);
+  const products = await streamCsvToProducts(csvPath, maxRows);
 
   mkdirSync(OUT_DIR, { recursive: true });
   const payload = {
     generatedAt: new Date().toISOString(),
     rowCount: products.length,
     products,
+    buildMeta: {
+      csvApproxBytes: bytes,
+      limitApplied: maxRows,
+      truncated: maxRows != null && products.length >= maxRows,
+      hint:
+        maxRows != null
+          ? `CSV demo capped at ${maxRows.toLocaleString()} rows (large file). Ingest via gateway + OpenSearch for full catalog NL search with BM25 semantics.`
+          : null,
+    },
   };
-  writeFileSync(OUT_FILE, JSON.stringify(payload, null, 2), "utf8");
-  console.log(`[demo-catalog] Wrote ${products.length} products → ${OUT_FILE}`);
+  writeFileSync(OUT_FILE, JSON.stringify(payload), "utf8");
+  console.log(
+    `[demo-catalog] Wrote ${products.length.toLocaleString()} products → ${OUT_FILE}` +
+      (maxRows ? ` (row cap ${maxRows.toLocaleString()})` : ""),
+  );
 }
 
-main();
+main().catch((e) => {
+  console.error("[demo-catalog] Failed:", e);
+  process.exit(1);
+});
