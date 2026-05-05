@@ -88,6 +88,28 @@ const STOP = new Set(
   ).map((s) => s.toLowerCase()),
 );
 
+/** Common merchant typos → normalized forms for tokenization. */
+function fixRetailSearchTypos(q: string): string {
+  return q.replace(/\bshirtts\b/giu, "shirts");
+}
+
+/**
+ * Shopper said "shirt(s)" but did not ask for tees / tanks — down-rank obvious T-shirt PDP copy.
+ */
+function wantsStructuredShirtsNotTees(canonicalQuery: string): boolean {
+  const q = canonicalQuery.toLowerCase();
+  if (/\bt[\s'-]*shirts?\b|\btshirts?\b|\bgraphic\s*tee\b|\btank(?:\s+top)?\b|\bsports\s+tee\b|\btee\s*shirt\b/u.test(q)) {
+    return false;
+  }
+  return /\b(shirts|shirt)\b/u.test(q);
+}
+
+/** Title-led: H&M-style listings put the garment class in the English title. */
+function titleLooksLikeTTeeShirt(p: ProductRecord): boolean {
+  const t = `${p.title.en} ${p.title.ar}`.toLowerCase();
+  return /\bt[\s'-]*shirts?\b|\btshirts?\b|\b(crew|v-?neck)\s*tee\b|\boversized\s+tee\b/u.test(t);
+}
+
 function normalizeQueryPhrase(q: string): string {
   return q
     .toLowerCase()
@@ -223,6 +245,7 @@ function scoreDoc(
   phrase: string,
   qtok: string[],
   colorWant: string | null,
+  deprioritizeTees: boolean,
 ): number {
   const hay = p.search_text;
   const titleEn = p.title.en.toLowerCase();
@@ -267,6 +290,18 @@ function scoreDoc(
     else if (hay.includes(colorWant)) score += 6;
   }
 
+  if (deprioritizeTees) {
+    if (titleLooksLikeTTeeShirt(p)) {
+      score *= 0.065;
+    } else if (
+      /\b(dress|oxford|linen|poplin|twill|kurta|fitted|printed|reserved|premium)\s+shirt\b|\bcasual\s+shirt\b|\bshirt\s+with\b|\blong[\s-]sleeved?\s+shirt\b|\bwoven\s+shirt\b/u.test(
+        `${titleEn} ${hay}`,
+      )
+    ) {
+      score += 24;
+    }
+  }
+
   return score;
 }
 
@@ -284,11 +319,13 @@ export function searchCsvDemoCatalog(
   const items = catalog.products ?? [];
   const from = pagination.from ?? 0;
   const size = Math.min(pagination.size ?? 24, 100);
-  const cap = extractPriceCap(query);
-  const colorWant = colorHint(query);
-  const genderWant = genderIntent(query);
-  const phrase = normalizeQueryPhrase(query);
-  const qtok = queryTokens(query);
+  const queryFixed = fixRetailSearchTypos(query.trim());
+  const cap = extractPriceCap(queryFixed);
+  const colorWant = colorHint(queryFixed);
+  const genderWant = genderIntent(queryFixed);
+  const phrase = normalizeQueryPhrase(queryFixed);
+  const qtok = queryTokens(queryFixed);
+  const deprioritizeTees = wantsStructuredShirtsNotTees(phrase);
 
   let filtered = [...items];
 
@@ -315,7 +352,7 @@ export function searchCsvDemoCatalog(
     qtok.length === 0 && phrase.length < 2
       ? filtered.map((p) => ({ ...p, _score: 1 }))
       : filtered.map((p) => {
-          const s = scoreDoc(p, phrase, qtok, colorWant);
+          const s = scoreDoc(p, phrase, qtok, colorWant, deprioritizeTees);
           return { ...p, _score: s };
         });
 
@@ -349,6 +386,7 @@ export function searchCsvDemoCatalog(
       priceCap: cap,
       genderIntent: genderWant,
       colorHint: colorWant,
+      deprioritizeTees,
       queryTokens: qtok.slice(0, 12),
       phrase,
       catalogBuildMeta: catalog.buildMeta ?? null,
