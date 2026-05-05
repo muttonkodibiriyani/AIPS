@@ -27,8 +27,17 @@ If GitHub already has a `LICENSE` commit, pull with allow-unrelated histories or
 
 The simplest path **does not use** the optional GitHub Action in [`.github/workflows/deploy-showcase-vercel.yml`](.github/workflows/deploy-showcase-vercel.yml).
 
+**Root directory (pick one)**
+
+| Root Directory | Config used |
+|----------------|-------------|
+| **`apps/showcase`** (recommended) | Next.js presets + [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) (`install` / `build` jump to the monorepo root via `cd ../..`). |
+| **`.`** (repository root) | Repo root [`vercel.json`](./vercel.json): **`pnpm install`** → **`pnpm --filter @commerce-ai/showcase build`** → output **`apps/showcase/.next`**. |
+
+If Root Directory is **`.`** but **Project → Settings → Build & Development** overrides **Build** to **`npm run build`**, Vercel runs Turbo for the whole repo with **npm**, **`apps/showcase`** never gets a proper install, and you see **`next: command not found`**. Clear those overrides (use framework defaults) **or** import root [`vercel.json`](./vercel.json).
+
 1. [Vercel](https://vercel.com) → **Add New** → **Project** → import **muttonkodibiriyani/AIPS**.
-2. **Root Directory:** `apps/showcase`.
+2. **Root Directory:** **`apps/showcase`** **or** **`.`** per the table above.
 3. **Environment variables** (Production + Preview):
 
    | Name | Purpose |
@@ -38,9 +47,9 @@ The simplest path **does not use** the optional GitHub Action in [`.github/workf
 
 4. Deploy. Subsequent pushes to the connected branch redeploy automatically.
 
-[`apps/showcase/vercel.json`](./apps/showcase/vercel.json) configures monorepo `pnpm` install/build from the repo root while the app lives under `apps/showcase`.
+[`apps/showcase/vercel.json`](./apps/showcase/vercel.json) applies when the Vercel **Root Directory** is `apps/showcase`. The repo root [`vercel.json`](./vercel.json) applies when the root directory is **`.`**.
 
-Generate and commit **`pnpm-lock.yaml`** from the repo root (`pnpm install`) for faster, reproducible installs (optional but recommended).
+Generate and commit **`pnpm-lock.yaml`** from the repo root (`pnpm install`) for faster, reproducible installs and so Turborepo can resolve workspaces (optional but recommended).
 
 ---
 
@@ -127,7 +136,8 @@ Set `COMMERCE_GATEWAY_URL` and `COMMERCE_API_KEY` in the process environment. Se
 
 1. Open the failing build log and find the **`Commit:`** line. It must match the latest **`main`** on GitHub (see [Commits](https://github.com/muttonkodibiriyani/AIPS/commits/main)).
 2. If the commit is older (for example **`e6585f0`**), Vercel is redeploying a stale revision. Fix: **Project → Deployments →** open the newest deployment produced by a **push** to **`main`**, or **Redeploy** from the dashboard after selecting **the latest Git commit**. Do **not** only “Redo” an old deployment.
-3. In **Project Settings → Git**, confirm the repo is **`muttonkodibiriyani/AIPS`**, production branch **`main`**, and **Root Directory** **`apps/showcase`**.
+3. In **Project Settings → Git**, confirm the repo is **`muttonkodibiriyani/AIPS`**, production branch **`main`**, and **Root Directory** **`apps/showcase`** (or **`./`** if you use root [`vercel.json`](./vercel.json)).
+4. Log shows **`Running "npm run build"`** → **`next: command not found`**: you are building from the repo root with **npm** + full Turbo instead of **`pnpm`** + showcase only. Use root [`vercel.json`](./vercel.json) and clear dashboard build overrides, **or** set Root Directory to **`apps/showcase`**.
 
 [GitHub `main`/package.json](https://github.com/muttonkodibiriyani/AIPS/blob/main/package.json) must parse as strict JSON (no trailing commas).
 

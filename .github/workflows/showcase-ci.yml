@@ -8,6 +8,7 @@ on:
       - "package.json"
       - "pnpm-workspace.yaml"
       - "scripts/**"
+      - "vercel.json"
       - ".github/workflows/showcase-ci.yml"
   pull_request:
     paths:
