@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*",
+    "packages/shared-types",
+    "packages/ui-components",
     "services/api-gateway"
   ],
   "engines": {

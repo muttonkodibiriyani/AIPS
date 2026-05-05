@@ -64,10 +64,10 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
 
 Validate from the deployed URL:
 
-- **`GET /api/health`** — `{ "gatewayConfigured", "demoSearchEnabled", "liveSearchAvailable" }` (never returns secrets).
+- **`GET /api/health`** — `{ gatewayConfigured, demoSearchEnabled, liveSearchAvailable, gitCommit? }` (**`gitCommit`** is `VERCEL_GIT_COMMIT_SHA` on Vercel; compare to [`main` on GitHub](https://github.com/muttonkodibiriyani/AIPS/commits/main) if you suspected a stale redeploy).
 
 
-Install uses **`npm`** + **workspace** installs from repo root (**`pnpm`** hits **`ERR_INVALID_THIS`** on many Vercel builders). Root [`package.json`](./package.json) does **not** set **`packageManager`**, so **`npm`** is the default unless you override Install in the dashboard. Local **`pnpm`** is still supported via [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
+Install uses **`npm`** + **`package.json` workspaces** (not `pnpm`) on Vercel. Workspaces list **`apps/*`**, **`packages/shared-types`**, **`packages/ui-components`**, and **`services/api-gateway`** only — **`packages/sdk-js`** / **`packages/sdk-react`** are excluded so install never parses stub-only `workspace:` links. Local **`pnpm install`** still installs **all** packages via [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
 
 Optional: commit **`package-lock.json`** after `npm install` at repo root for faster, reproducible installs. For local **pnpm**, commit **`pnpm-lock.yaml`** when your team pins `pnpm`.
 
@@ -169,7 +169,9 @@ Or `pnpm install` locally if you prefer. Set `COMMERCE_GATEWAY_URL` and `COMMERC
 
 ## Troubleshooting: **`npm error Unsupported URL Type "workspace:"`**
 
-[`npm install`](./apps/showcase/vercel.json) on Vercel can fail if any workspace package declares **`workspace:*`** dependencies — the builder’s **`npm`** may reject that protocol (**`EUNSUPPORTEDPROTOCOL`**). Package [`packages/sdk-js`](./packages/sdk-js/package.json) and [`packages/sdk-react`](./packages/sdk-react/package.json) use **`file:../shared-types`** and **`file:../sdk-js`** instead. Deploy from latest **`main`**.
+Your build log’s **`Commit:`** line must match the **latest** [`main`](https://github.com/muttonkodibiriyani/AIPS/commits/main) (for example anything **after** **`9be2d88`** includes `file:` deps in the SDK stubs **and** narrower npm workspaces **without** `packages/sdk-*`). If you still see **`commit 7d38100`**, use **Deployments → Redeploy →** pick the **latest Production** build from GitHub, not **“Redeploy”** on an **old** deployment row.
+
+[`npm install`](./apps/showcase/vercel.json) on Vercel can fail if any **installed** workspace package still declares **`workspace:*`**. This repo **drops `packages/sdk-*` from npm `workspaces`** in root [`package.json`](./package.json) so Vercel skips those stubs entirely.
 
 ---
 

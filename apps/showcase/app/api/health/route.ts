@@ -13,5 +13,6 @@ export async function GET() {
     gatewayConfigured: gw.length > 0,
     demoSearchEnabled: demo,
     liveSearchAvailable: gw.length > 0,
+    gitCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
   });
 }

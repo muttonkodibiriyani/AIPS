@@ -7,7 +7,24 @@ type Health = {
   gatewayConfigured: boolean;
   demoSearchEnabled: boolean;
   liveSearchAvailable: boolean;
+  gitCommit?: string | null;
 };
+
+function DeployRev({ sha }: { sha?: string | null }) {
+  if (!sha || sha.length < 7) return null;
+  const short = sha.slice(0, 7);
+  return (
+    <p className="mt-2 text-[10px] font-mono text-white/55">
+      Deploy git SHA: {short} — compare with latest on{" "}
+      <a
+        href="https://github.com/muttonkodibiriyani/AIPS/commits/main"
+        className="text-teal-300/95 underline-offset-2 hover:underline"
+      >
+        github.com/muttonkodibiriyani/AIPS
+      </a>
+    </p>
+  );
+}
 
 /** Shown when Vercel env is missing or only demo mode — never exposes API keys. */
 export function DeploymentEnvBanner() {
@@ -50,6 +67,7 @@ export function DeploymentEnvBanner() {
             false, redeploy.
           </span>
         </p>
+        <DeployRev sha={health.gitCommit} />
       </div>
     );
   }
@@ -78,6 +96,7 @@ export function DeploymentEnvBanner() {
         {" "}
         <span className="font-mono">vercel.json</span> selects Next.js.
       </p>
+      <DeployRev sha={health.gitCommit} />
     </div>
   );
 }

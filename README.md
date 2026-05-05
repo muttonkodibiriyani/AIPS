@@ -25,7 +25,7 @@ See [TECHNICAL_PRD.md](./TECHNICAL_PRD.md) for architecture, API ownership, and 
 
 ## Prerequisites
 
-- Node 20+. **Dependencies:** `pnpm` 9+ (recommended locally) or **`npm install`** at the repo root (same as Vercel; workspaces are defined in [`package.json`](./package.json), with [`.npmrc`](./.npmrc) for relaxed peer resolution in the monorepo).
+- Node 20+. **JS install:** `pnpm install` at repo root (full tree: [`pnpm-workspace.yaml`](./pnpm-workspace.yaml) includes `packages/sdk-*` stubs). **`npm install`** (as on Vercel) uses [`package.json`](./package.json) `workspaces` which **omit** `packages/sdk-js` and `packages/sdk-react` so **`npm` never hits `workspace:*` / stub-only packages** while the showcase still builds. [.npmrc](./.npmrc) relaxes peer deps for `npm`.
 - Python 3.11+ (recommended: [`uv`](https://github.com/astral-sh/uv))
 - Docker (for `infra/docker/docker-compose.yml`)
 
