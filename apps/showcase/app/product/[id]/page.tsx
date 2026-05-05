@@ -80,6 +80,14 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                 <dt className="text-slate-500">Product ID</dt>
                 <dd className="font-mono text-slate-200">{p.product_id}</dd>
               </div>
+              {p.attrs?.retrieval_category_label || p.attrs?.retrieval_category ? (
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-slate-500">Merch bucket</dt>
+                  <dd className="font-mono text-[13px] text-slate-200">
+                    {p.attrs?.retrieval_category_label ?? p.attrs?.retrieval_category}
+                  </dd>
+                </div>
+              ) : null}
               {p.attrs?.customer_group ? (
                 <div className="flex flex-wrap gap-x-2">
                   <dt className="text-slate-500">Customer group</dt>
