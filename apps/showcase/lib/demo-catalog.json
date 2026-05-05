@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-05-05T07:34:08.800Z",
+  "rowCount": 4,
+  "products": [
+    {
+      "tenant_id": "csv-demo",
+      "product_id": "DEMO-VASE-01",
+      "sku": "VASE-WHT-01",
+      "market": "AE",
+      "title": {
+        "en": "Minimal stoneware vase white",
+        "ar": "مزهرية بيضاء"
+      },
+      "attrs": {
+        "color": "White"
+      },
+      "pricing": {
+        "aed": 189
+      },
+      "images": [
+        "https://placehold.co/400x400/png?text=Vase+1",
+        "https://placehold.co/200x200/png?text=Vase+2"
+      ],
+      "availability": true,
+      "search_text": "minimal stoneware vase white مزهرية بيضاء rounded silhouette for tabletop styling  white  vase-wht-01 demo-vase-01 ",
+      "_score": 0
+    },
+    {
+      "tenant_id": "csv-demo",
+      "product_id": "DEMO-JKT-02",
+      "sku": "JKT-BLU-M",
+      "market": "SA",
+      "title": {
+        "en": "Denim jacket indigo men's M",
+        "ar": "سترة جينز رجالية"
+      },
+      "attrs": {
+        "color": "Blue"
+      },
+      "pricing": {
+        "aed": 449
+      },
+      "images": [
+        "https://placehold.co/400x400/png?text=Jacket"
+      ],
+      "availability": true,
+      "search_text": "denim jacket indigo men's m سترة جينز رجالية washed denim layer for weekend wear  blue  jkt-blu-m demo-jkt-02 ",
+      "_score": 0
+    },
+    {
+      "tenant_id": "csv-demo",
+      "product_id": "DEMO-TBL-03",
+      "sku": "TOWL-ORG-Q",
+      "market": "AE",
+      "title": {
+        "en": "Organic bath towel quartet",
+        "ar": "مجموعة مناشف قطنية"
+      },
+      "attrs": {
+        "color": "Grey"
+      },
+      "pricing": {
+        "aed": 239
+      },
+      "images": [
+        "https://placehold.co/400x400/png?text=Towel"
+      ],
+      "availability": true,
+      "search_text": "organic bath towel quartet مجموعة مناشف قطنية gsm 600 quick dry bundle  grey  towl-org-q demo-tbl-03 ",
+      "_score": 0
+    },
+    {
+      "tenant_id": "csv-demo",
+      "product_id": "DEMO-BAG-04",
+      "sku": "BAG-LTH-BLK",
+      "market": "AE",
+      "title": {
+        "en": "Compact leather crossbody black",
+        "ar": "حقيبة صغيرة"
+      },
+      "attrs": {
+        "color": "Black"
+      },
+      "pricing": {
+        "aed": 559
+      },
+      "images": [
+        "https://placehold.co/400x400/png?text=Bag"
+      ],
+      "availability": false,
+      "search_text": "compact leather crossbody black حقيبة صغيرة italian grain leather commuter  black  bag-lth-blk demo-bag-04 ",
+      "_score": 0
+    }
+  ]
+}

@@ -1,9 +1,36 @@
 import { NextResponse } from "next/server";
 
+import type { DemoCatalogFile } from "@/lib/csv-demo-search";
+import { searchCsvDemoCatalog } from "@/lib/csv-demo-search";
+import demoCatalog from "@/lib/demo-catalog.json";
+
 type ProductCard = Record<string, unknown>;
 
+const csvBundle = demoCatalog as DemoCatalogFile;
+
+function csvSearchResponse(body: Record<string, unknown>) {
+  const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
+  const query = typeof body.query === "string" ? body.query : "";
+  const pagination =
+    body.pagination && typeof body.pagination === "object" && body.pagination !== null
+      ? (body.pagination as { from?: number; size?: number })
+      : {};
+
+  const r = searchCsvDemoCatalog(csvBundle, query, tenantId, pagination);
+  return NextResponse.json({
+    products: r.products,
+    facets: r.facets,
+    total: r.total,
+    appliedFilters: {
+      ...r.appliedFilters,
+      hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Set COMMERCE_GATEWAY_URL for live API.",
+    },
+    interpretation: { lexicalWeight: 1, semanticWeight: 0 },
+  });
+}
+
 /**
- * Offline / board-demo payload when COMMERCE_GATEWAY_URL is unset and SHOWCASE_DEMO_SEARCH=true on Vercel.
+ * Offline / stub payload when COMMERCE_GATEWAY_URL is unset and SHOWCASE_DEMO_SEARCH=true and no CSV rows.
  */
 function mockSearchResponse(body: Record<string, unknown>) {
   const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
@@ -80,9 +107,9 @@ function mockSearchResponse(body: Record<string, unknown>) {
     },
     total: products.length,
     appliedFilters: {
-      _demo_: true,
+      _demo_stub_: true,
       tenantId,
-      hint: "Set COMMERCE_GATEWAY_URL (+ COMMERCE_API_KEY), remove SHOWCASE_DEMO_SEARCH for live OpenSearch-backed results.",
+      hint: "Hardcoded stub. Add apps/showcase/data/catalog.csv or COMMERCE_GATEWAY_URL for real data.",
     },
     interpretation: { lexicalWeight: 1, semanticWeight: 0 },
   });
@@ -90,10 +117,12 @@ function mockSearchResponse(body: Record<string, unknown>) {
 
 /**
  * Server-side proxy: keeps COMMERCE_API_KEY off the browser bundle.
+ * Without gateway: prefers CSV-generated catalog (`prebuild`), then SHOWCASE_DEMO_SEARCH stub.
  */
 export async function POST(req: Request) {
   const baseRaw = process.env.COMMERCE_GATEWAY_URL;
-  const demo = process.env.SHOWCASE_DEMO_SEARCH === "true";
+  const demoStub = process.env.SHOWCASE_DEMO_SEARCH === "true";
+  const csvRows = csvBundle.products?.length ?? 0;
 
   let body: Record<string, unknown>;
   try {
@@ -105,14 +134,17 @@ export async function POST(req: Request) {
   const base = typeof baseRaw === "string" ? baseRaw.trim() : "";
 
   if (!base) {
-    if (demo) {
+    if (csvRows > 0) {
+      return csvSearchResponse(body);
+    }
+    if (demoStub) {
       return mockSearchResponse(body);
     }
     return NextResponse.json(
       {
-        error: "gateway_unconfigured",
+        error: "demo_unconfigured",
         message:
-          "Set COMMERCE_GATEWAY_URL on Vercel (or locally). For a UI-only rehearsal, enable SHOWCASE_DEMO_SEARCH=true and redeploy.",
+          "Add product rows to apps/showcase/data/catalog.csv (commit + redeploy), or set SHOWCASE_DEMO_SEARCH=true, or configure COMMERCE_GATEWAY_URL.",
         products: [],
         facets: {},
         total: 0,

@@ -140,7 +140,28 @@ More detail: [`services/catalog-ingestion/README.md`](./services/catalog-ingesti
 
 ---
 
-## 6. Self-host the Next.js showcase
+## 6. CSV-backed demo on Vercel (**no production API key**)
+
+1. Put your export at **[`apps/showcase/data/catalog.csv`](./apps/showcase/data/catalog.csv)** (UTF-8 CSV, header row).
+
+   Headers align with the ingestion canon (see [`canonical.py`](./services/catalog-ingestion/catalog_ingestion/canonical.py)): e.g. **`product_id`** or **`sku`**, **`name`**, **`name (ar)`**, **`image links`** (pipes/commas for multiple URLs), **`color`**, **`market`**, **`price.ae`** / **`price.sa`**, **`availability`**, **`long description`**.
+
+2. Every **`npm run build`** for the showcase runs **`prebuild`** → [`scripts/generate-demo-catalog-from-csv.mjs`](./scripts/generate-demo-catalog-from-csv.mjs) → refreshes **`apps/showcase/lib/demo-catalog.json`** (committed or regenerates on CI/Vercel).
+
+3. **`POST /api/search`** reads that JSON in-process when **`COMMERCE_GATEWAY_URL`** is unset (**no env vars required**). Optional: **`SHOWCASE_CATALOG_CSV`** points to another path relative to repo root during build only. Very large exports may exceed the serverless bundle size — split files or switch to gateway + ingest later.
+
+4. Push to GitHub; Vercel redeploy builds the bundle. Optional env **`SHOWCASE_DEMO_SEARCH=true`** only matters if **`catalog.csv` is empty** (falls back to a tiny hardcoded stub list).
+
+Locally refresh JSON without full build:
+
+```bash
+npm install        # installs csv-parse (root devDependency)
+npm run showcase:demo-catalog
+```
+
+---
+
+## 7. Self-host the Next.js showcase
 
 ```bash
 npm install    # repo root — workspaces

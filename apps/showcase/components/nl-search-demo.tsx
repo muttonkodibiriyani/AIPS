@@ -192,7 +192,9 @@ export function NLSearchDemo() {
           {error ? (
             <div className="mt-6 rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
               <p>{error}</p>
-              {(data?.error === "gateway_unconfigured" || /gateway/i.test(String(error))) && (
+              {(data?.error === "gateway_unconfigured" ||
+                data?.error === "demo_unconfigured" ||
+                /gateway/i.test(String(error))) && (
                 <p className="mt-3 font-mono text-[11px] text-amber-200/85">
                   Vercel → Env: COMMERCE_GATEWAY_URL + COMMERCE_API_KEY · or SHOWCASE_DEMO_SEARCH=true (sample SKUs) · redeploy
                 </p>

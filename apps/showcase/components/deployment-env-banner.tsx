@@ -7,6 +7,8 @@ type Health = {
   gatewayConfigured: boolean;
   demoSearchEnabled: boolean;
   liveSearchAvailable: boolean;
+  csvCatalogRows?: number;
+  offlineSearchAvailable?: boolean;
   gitCommit?: string | null;
 };
 
@@ -49,6 +51,25 @@ export function DeploymentEnvBanner() {
   if (!health) return null;
 
   if (health.liveSearchAvailable) return null;
+
+  if (health.offlineSearchAvailable && (health.csvCatalogRows ?? 0) > 0) {
+    return (
+      <div
+        role="status"
+        className="border-b border-sky-500/30 bg-sky-950/85 px-4 py-2.5 text-center text-[13px] text-sky-100/95"
+      >
+        <p className="inline-flex flex-wrap items-center justify-center gap-2">
+          <Sparkles className="size-4 shrink-0 text-sky-300" aria-hidden />
+          <span>
+            <strong>CSV demo catalog</strong> — {health.csvCatalogRows} products bundled at build (no production API
+            key). Replace <span className="font-mono text-[11px]">apps/showcase/data/catalog.csv</span> with your file,
+            push, redeploy.
+          </span>
+        </p>
+        <DeployRev sha={health.gitCommit} />
+      </div>
+    );
+  }
 
   if (health.demoSearchEnabled) {
     return (

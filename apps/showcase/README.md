@@ -1,8 +1,23 @@
 # Showcase · leadership-ready Next.js frontend
 
-Executive narrative + live **natural-language search** wired to Nest via **`POST /api/search`** so `COMMERCE_API_KEY` stays server-side.
+Executive narrative + live **natural-language search** via **`POST /api/search`**.
 
-## Local
+## CSV demo (no Nest / no API key)
+
+1. Replace **[`data/catalog.csv`](./data/catalog.csv)** with your UTF‑8 export (SKU, names, **image links**, colour, market, prices — aligned with ingestion [`canonical.py`](../../services/catalog-ingestion/catalog_ingestion/canonical.py)).
+2. From repo root:
+
+```bash
+npm install
+npm run showcase:demo-catalog    # refresh lib/demo-catalog.json
+npm run dev -w @commerce-ai/showcase
+```
+
+3. Leave **`COMMERCE_GATEWAY_URL`** unset in `.env.local` — search runs **in-process** over the generated JSON.
+
+On **Vercel**, `prebuild` runs the same generator; **no env vars** are required for the CSV path.
+
+## Local (with real gateway)
 
 ```bash
 # from repo root:
@@ -17,19 +32,19 @@ Defaults to **http://localhost:3100**. Copy **`apps/showcase/.env.example`** →
 ```
 COMMERCE_GATEWAY_URL=http://localhost:3000
 COMMERCE_API_KEY=pk_stub
-SHOWCASE_DEMO_SEARCH=false   # true = sample SKUs in /api/search when gateway URL omitted
+SHOWCASE_DEMO_SEARCH=false   # only used when catalog.csv is empty and no gateway
 ```
 
 ## Vercel
 
 1. Import GitHub repo.
-2. **Root Directory**: **`apps/showcase`** (required — see **`vercel.json`** in this folder).
-3. Env: **`COMMERCE_GATEWAY_URL`**, **`COMMERCE_API_KEY`**. Optionally **`SHOWCASE_DEMO_SEARCH=true`** for UI rehearsal without a gateway (sample products only).
+2. **Root Directory**: **`apps/showcase`** (see **`vercel.json`**).
+3. **Optional env** (only if you use the live gateway): **`COMMERCE_GATEWAY_URL`**, **`COMMERCE_API_KEY`**. When the gateway is unset and **`data/catalog.csv`** has rows, search uses the **CSV bundle** automatically.
 4. Deploy.
 
-Gateway must be **HTTPS** when used in production previews.
+Gateway must be **HTTPS** for production API mode.
 
-Repo + ingest + SLT playbook: **[`DEPLOYMENT_SHOWCASE.md`](../../DEPLOYMENT_SHOWCASE.md)** (root).
+Playbook: **[`DEPLOYMENT_SHOWCASE.md`](../../DEPLOYMENT_SHOWCASE.md)**.
 
 ## Self-host Node
 
