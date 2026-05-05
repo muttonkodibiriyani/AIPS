@@ -1,23 +1,99 @@
 import { NextResponse } from "next/server";
 
+type ProductCard = Record<string, unknown>;
+
+/**
+ * Offline / board-demo payload when COMMERCE_GATEWAY_URL is unset and SHOWCASE_DEMO_SEARCH=true on Vercel.
+ */
+function mockSearchResponse(body: Record<string, unknown>) {
+  const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
+  const query = typeof body.query === "string" ? body.query : "";
+  const q = query.toLowerCase();
+
+  const all: ProductCard[] = [
+    {
+      title: { en: "Organic cotton duvet cover · ivory queen", ar: "غطاء لحاف قطن عضوي عاجي" },
+      sku: "HOM-DUV-IVORY-Q",
+      product_id: "HOM-DUV-IVORY-Q",
+      market: "AE",
+      images: [],
+      availability: true,
+      pricing: { aed: 349 },
+      _score: 18.2,
+    },
+    {
+      title: {
+        en: "Stoneware vase · minimalist white glaze",
+        ar: "مزهرية خزف حجر أبيض",
+      },
+      sku: "DEC-VASE-STNE-WHT",
+      product_id: "DEC-VASE-STNE-WHT",
+      market: "AE",
+      images: [],
+      availability: true,
+      pricing: { aed: 189 },
+      _score: 16.9,
+    },
+    {
+      title: { en: "Denim jacket · men's M · indigo wash", ar: "جاكيت جينز رجالي" },
+      sku: "APP-JKT-DNM-M",
+      product_id: "APP-JKT-DNM-M",
+      market: "SA",
+      images: [],
+      availability: true,
+      pricing: { sar: 399 },
+      _score: 15.4,
+    },
+    {
+      title: { en: "Leather crossbody · compact black", ar: "حقيبة جلدية سوداء" },
+      sku: "ACC-BAG-LTH-BLK",
+      product_id: "ACC-BAG-LTH-BLK",
+      market: "AE",
+      images: [],
+      availability: false,
+      pricing: { aed: 459 },
+      _score: 14.8,
+    },
+  ];
+
+  const products =
+    q.length < 2
+      ? all
+      : all.filter((p) => {
+          const titles = typeof p.title === "object" && p.title !== null ? (p.title as Record<string, string>) : {};
+          const hay = `${titles.en ?? ""} ${titles.ar ?? ""} ${String(p.sku ?? "")}`.toLowerCase();
+          return hay.includes(q) || /\b(blank|anything|everything|catalog|sku)\b/i.test(query);
+        });
+
+  return NextResponse.json({
+    products,
+    facets: {
+      colors: [
+        { key: "white", count: 2 },
+        { key: "blue", count: 1 },
+        { key: "black", count: 1 },
+      ],
+      markets: [
+        { key: "AE", count: 3 },
+        { key: "SA", count: 1 },
+      ],
+    },
+    total: products.length,
+    appliedFilters: {
+      _demo_: true,
+      tenantId,
+      hint: "Set COMMERCE_GATEWAY_URL (+ COMMERCE_API_KEY), remove SHOWCASE_DEMO_SEARCH for live OpenSearch-backed results.",
+    },
+    interpretation: { lexicalWeight: 1, semanticWeight: 0 },
+  });
+}
+
 /**
  * Server-side proxy: keeps COMMERCE_API_KEY off the browser bundle.
  */
 export async function POST(req: Request) {
-  const base = process.env.COMMERCE_GATEWAY_URL;
-  if (!base) {
-    return NextResponse.json(
-      {
-        error: "gateway_unconfigured",
-        message:
-          "Set COMMERCE_GATEWAY_URL on Vercel (or locally) to your Nest gateway HTTPS origin, then redeploy.",
-        products: [],
-        facets: {},
-        total: 0,
-      },
-      { status: 503 },
-    );
-  }
+  const baseRaw = process.env.COMMERCE_GATEWAY_URL;
+  const demo = process.env.SHOWCASE_DEMO_SEARCH === "true";
 
   let body: Record<string, unknown>;
   try {
@@ -26,14 +102,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const base = typeof baseRaw === "string" ? baseRaw.trim() : "";
+
+  if (!base) {
+    if (demo) {
+      return mockSearchResponse(body);
+    }
+    return NextResponse.json(
+      {
+        error: "gateway_unconfigured",
+        message:
+          "Set COMMERCE_GATEWAY_URL on Vercel (or locally). For a UI-only rehearsal, enable SHOWCASE_DEMO_SEARCH=true and redeploy.",
+        products: [],
+        facets: {},
+        total: 0,
+      },
+      { status: 503 },
+    );
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
   const key = process.env.COMMERCE_API_KEY ?? process.env.SHOWCASE_API_FALLBACK ?? "pk_demo";
-  if (key) {
-    headers.Authorization = `Bearer ${key}`;
-  }
+  headers.Authorization = `Bearer ${key}`;
 
   const stripped = base.replace(/\/$/, "");
 

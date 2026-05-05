@@ -43,7 +43,7 @@ function pickTitle(p: ProductHit): string {
 
 export function NLSearchDemo() {
   const [query, setQuery] = useState(NL_EXAMPLES[0].full);
-  const [tenant, setTenant] = useState("demo");
+  const [tenant, setTenant] = useState("demo-sl");
   const [market, setMarket] = useState("AE");
   const [locale, setLocale] = useState("en-AE");
   const [loading, setLoading] = useState(false);
@@ -194,7 +194,7 @@ export function NLSearchDemo() {
               <p>{error}</p>
               {(data?.error === "gateway_unconfigured" || /gateway/i.test(String(error))) && (
                 <p className="mt-3 font-mono text-[11px] text-amber-200/85">
-                  Vercel → Settings → Env → COMMERCE_GATEWAY_URL + COMMERCE_API_KEY · redeploy
+                  Vercel → Env: COMMERCE_GATEWAY_URL + COMMERCE_API_KEY · or SHOWCASE_DEMO_SEARCH=true (sample SKUs) · redeploy
                 </p>
               )}
             </div>

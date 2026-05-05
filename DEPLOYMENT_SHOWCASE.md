@@ -27,39 +27,38 @@ If GitHub already has a `LICENSE` commit, pull with allow-unrelated histories or
 
 The simplest path **does not use** the optional GitHub Action in [`.github/workflows/deploy-showcase-vercel.yml`](.github/workflows/deploy-showcase-vercel.yml).
 
-**Root directory (pick one)**
+**Critical — Vercel Root Directory**
 
-| Root Directory | Config used |
-|----------------|-------------|
-| **`apps/showcase`** (recommended) | Next.js presets + [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) (`install` / `build` jump to the monorepo root via `cd ../..`). |
-| **`.`** (repository root) | Repo root [`vercel.json`](./vercel.json): **`npm install`** (workspaces in root [`package.json`](./package.json)) → **`npm run build -w @commerce-ai/showcase`** → output **`apps/showcase/.next`**. |
+Set **Project → Settings → General → Root Directory** to **`apps/showcase`** (not the repository root).  
+The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) live there. Deploying with Root Directory **`.`** and a repo-root `vercel.json` is **not supported** for this monorepo: Vercel’s Next.js integration expects `next.config` and the app beside the computed `.next` output ([configure a build / root directory](https://vercel.com/docs/builds/configure-a-build)).
 
-If Root Directory is **`.`** but **Project → Settings → Build & Development** overrides **Install** / **Build**, Vercel can ignore [`vercel.json`](./vercel.json) and fall back to **`npm run build`** at the root (full Turbo) or a broken **`pnpm install`**. Clear those overrides so the config above applies.
+[`apps/showcase/vercel.json`](./apps/showcase/vercel.json) runs **`cd ../.. && npm install`** (npm workspaces from the repo root), then **`npm run build`** (Next in this app).
 
 1. [Vercel](https://vercel.com) → **Add New** → **Project** → import **muttonkodibiriyani/AIPS**.
-2. **Root Directory:** **`apps/showcase`** **or** **`.`** per the table above.
+2. **Root Directory:** **`apps/showcase`**.
 3. **Environment variables** (Production + Preview):
 
    | Name | Purpose |
    |------|--------|
-   | `COMMERCE_GATEWAY_URL` | Public HTTPS base URL of Nest gateway (must be reachable by Vercel’s build/runtime, e.g. `https://api.yourdomain.com`) |
-   | `COMMERCE_API_KEY` | Same bearer key configured on the gateway (stub default often `pk_stub` in local `.env`). |
+   | `COMMERCE_GATEWAY_URL` | Public **HTTPS** base URL of Nest gateway (**omit** only if using demo mode below). |
+   | `COMMERCE_API_KEY` | Bearer key the gateway expects (stub often `pk_stub`). |
+   | `SHOWCASE_DEMO_SEARCH` | Optional **`true`**: serves **fixed sample SKUs** from **`/api/search`** when **`COMMERCE_GATEWAY_URL`** is unset (SLT UI rehearsal, **not** production). Remove or set `false` for live catalog. |
 
-4. **Node.js version:** Keep **Node 20.x** for the build (see [`engines`](./package.json)). Vercel documents version selection in [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions).
+4. **Node.js:** **20.x** (see [`engines`](./package.json) and [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions)).
 
-5. Deploy. Subsequent pushes to the connected branch redeploy automatically.
+5. Clear **Install** / **Build** **overrides** in **Project → Settings → Build & Development** so [`vercel.json`](./apps/showcase/vercel.json) drives the pipeline.
 
-Install on Vercel uses **`npm`** + **workspaces** (not `pnpm`) because **`pnpm`** registry fetches intermittently fail on Vercel (**`ERR_INVALID_THIS`** / **`URLSearchParams`**). The repo does **not** set **`packageManager`** in [`package.json`](./package.json), so the platform defaults to **npm** unless you override Install in the dashboard. Local development can still use **`pnpm`** (`pnpm-workspace.yaml` is unchanged).
+6. Deploy. Subsequent pushes redeploy automatically.
 
-[`apps/showcase/vercel.json`](./apps/showcase/vercel.json) applies when the Vercel **Root Directory** is `apps/showcase`. The repo root [`vercel.json`](./vercel.json) applies when the root directory is **`.`**.
+Install uses **`npm`** + **workspace** installs from repo root (**`pnpm`** hits **`ERR_INVALID_THIS`** on many Vercel builders). Root [`package.json`](./package.json) does **not** set **`packageManager`**, so **`npm`** is the default unless you override Install in the dashboard. Local **`pnpm`** is still supported via [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
 
-Optional: commit **`package-lock.json`** (`npm install` at the repo root) for faster, reproducible Vercel installs. If you mostly use **pnpm** locally, also commit **`pnpm-lock.yaml`** after `pnpm install` so Turborepo and `pnpm` workflows stay deterministic.
+Optional: commit **`package-lock.json`** after `npm install` at repo root for faster, reproducible installs. For local **pnpm**, commit **`pnpm-lock.yaml`** when your team pins `pnpm`.
 
 ---
 
 ## 3. Alternative: GitHub Action deploy
 
-Requires `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. Run **Deploy showcase to Vercel** manually from **Actions → workflow_dispatch**.
+Requires `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. Run **Deploy showcase to Vercel** manually from **Actions → workflow_dispatch**. The workflow uses **`working-directory: apps/showcase`** and matches the dashboard Root Directory rule above.
 
 ---
 
@@ -69,7 +68,7 @@ Requires `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. Run **Deploy 
 
 2. Apply OpenSearch templates as in [`configs/opensearch/README.md`](./configs/opensearch/README.md).
 
-3. Run **`services/search-orchestrator`**, **`services/catalog-ingestion`** (embedded worker or `commerce-ingest-worker`), **`services/api-gateway`**, aligned with `.env`/`.env.example` service URLs.
+3. Run **`services/search-orchestrator`**, **`services/catalog-ingestion`** (embedded worker or ingest worker), **`services/api-gateway`**, aligned with `.env`/`.env.example` service URLs.
 
 4. Expose the **gateway** on **HTTPS** (reverse proxy / tunnel / managed host).
 
@@ -118,7 +117,7 @@ curl -sS -X POST "$GATEWAY/v1/search" \
   -d '{"tenantId":"demo-sl","query":"red shoes under 200"}'
 ```
 
-The showcase site calls the gateway via server route [`apps/showcase/app/api/search/route.ts`](./apps/showcase/app/api/search/route.ts); use the same `tenantId` in the UI if the demo exposes it.
+The showcase UI uses **`POST /api/search`** → gateway; tenant defaults include **`demo-sl`** in the NL playground ([`apps/showcase/components/nl-search-demo.tsx`](./apps/showcase/components/nl-search-demo.tsx)).
 
 More detail: [`services/catalog-ingestion/README.md`](./services/catalog-ingestion/README.md).
 
@@ -127,24 +126,27 @@ More detail: [`services/catalog-ingestion/README.md`](./services/catalog-ingesti
 ## 6. Self-host the Next.js showcase
 
 ```bash
-pnpm install
-pnpm --filter @commerce-ai/showcase build
-pnpm --filter @commerce-ai/showcase start
+npm install    # repo root — workspaces
+cd apps/showcase && npm run dev
 ```
 
-Set `COMMERCE_GATEWAY_URL` and `COMMERCE_API_KEY` in the process environment. See [`apps/showcase/README.md`](./apps/showcase/README.md).
+Or `pnpm install` locally if you prefer. Set `COMMERCE_GATEWAY_URL` and `COMMERCE_API_KEY` in `apps/showcase/.env.local`. See [`apps/showcase/README.md`](./apps/showcase/README.md).
 
 ---
 
 ## Troubleshooting: `package.json … Expected double-quoted property name`
 
-1. Open the failing build log and find the **`Commit:`** line. It must match the latest **`main`** on GitHub (see [Commits](https://github.com/muttonkodibiriyani/AIPS/commits/main)).
-2. If the commit is older (for example **`e6585f0`**), Vercel is redeploying a stale revision. Fix: **Project → Deployments →** open the newest deployment produced by a **push** to **`main`**, or **Redeploy** from the dashboard after selecting **the latest Git commit**. Do **not** only “Redo” an old deployment.
-3. In **Project Settings → Git**, confirm the repo is **`muttonkodibiriyani/AIPS`**, production branch **`main`**, and **Root Directory** **`apps/showcase`** (or **`./`** if you use root [`vercel.json`](./vercel.json)).
-4. Log shows **`Running "npm run build"`** → **`next: command not found`**: you are building from the repo root with **npm** + full Turbo instead of **`pnpm`** + showcase only. Use root [`vercel.json`](./vercel.json) and clear dashboard build overrides, **or** set Root Directory to **`apps/showcase`**.
-5. **`pnpm install` fails** with **`ERR_INVALID_THIS`**, **`ERR_PNPM_META_FETCH_FAIL`**, or **`Value of "this" must be of type URLSearchParams`**: Vercel installs in this repo use **`npm install`** (see root [`vercel.json`](./vercel.json)) specifically to avoid **`pnpm`** registry bugs on Vercel builds. If your project still runs **`pnpm install`**, clear dashboard **Install Command** overrides so [`vercel.json`](./vercel.json) applies (see also [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions) and **Node 20.x** via `engines`).
+1. Confirm the **`Commit:`** in the failing log matches **latest [`main`](https://github.com/muttonkodibiriyani/AIPS/commits/main)**.
+2. If the SHA is stale, redeploy **from `main`** (don’t redo an old deployment only).
 
-[GitHub `main`/package.json](https://github.com/muttonkodibiriyani/AIPS/blob/main/package.json) must parse as strict JSON (no trailing commas).
+---
+
+## Troubleshooting: **`pnpm install`**, **`next: command not found`**, **`ERR_INVALID_THIS`**
+
+1. **Root Directory** MUST be **`apps/showcase`**.
+2. Do **not** force **`pnpm`** in the dashboard when this repo configures **`npm`** from [`apps/showcase/vercel.json`](./apps/showcase/vercel.json).
+3. **`pnpm install`** errors with **`ERR_INVALID_THIS`** / **`URLSearchParams`**: stick to **npm** on Vercel (as configured); use **Node 20.x**.
+4. Log shows **`next: command not found`**: monorepo install did not finish or Root Directory pointed at `.` — fix Root Directory + clear Install overrides.
 
 ---
 
