@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ChevronDown, Cpu, Filter, Loader2, Search, Wand2 } from "lucide-react";
@@ -296,11 +297,14 @@ export function NLSearchDemo() {
               const imgs = Array.isArray(p.images) ? (p.images as string[]) : [];
               const raw = imgs[0];
               const src = raw ? imgUrl(raw) : null;
+              const pid = String(p.product_id ?? p.sku ?? idx);
+              const href = `/product/${encodeURIComponent(pid)}`;
               return (
-                <li
-                  key={`${pickTitle(p)}-${idx}`}
-                  className="group flex overflow-hidden rounded-xl border border-white/10 bg-slate-950/95 transition hover:border-teal-500/40 hover:bg-slate-900/95"
-                >
+                <li key={`${pid}-${idx}`} className="list-none">
+                  <Link
+                    href={href}
+                    className="group flex overflow-hidden rounded-xl border border-white/10 bg-slate-950/95 transition hover:border-teal-500/40 hover:bg-slate-900/95"
+                  >
                   <div className="relative h-[132px] w-[126px] shrink-0 overflow-hidden border-r border-white/10 bg-black/55">
                     {src ? (
                       <Image
@@ -333,6 +337,7 @@ export function NLSearchDemo() {
                       ) : null}
                     </div>
                   </div>
+                  </Link>
                 </li>
               );
             })}

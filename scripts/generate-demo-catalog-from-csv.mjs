@@ -1,11 +1,11 @@
 /**
  * Build Step: apps/showcase/data/catalog.csv → apps/showcase/lib/demo-catalog.json
- * Run from repo root via: node scripts/generate-demo-catalog-from-csv.mjs
- * Or automatically: npm run build in apps/showcase (prebuild hook).
  *
  * Env:
- *   SHOWCASE_CATALOG_CSV — absolute or repo-relative path (default: apps/showcase/data/catalog.csv).
- *   SHOWCASE_DEMO_ROW_LIMIT — max products to emit (overrides auto cap for large CSVs). Set "0" for no limit (OOM risk on huge files).
+ *   SHOWCASE_CATALOG_CSV — path to CSV (default: apps/showcase/data/catalog.csv).
+ *   SHOWCASE_DEMO_ROW_LIMIT — max products; 0/unset with small file = all rows; large file auto cap 25k.
+ *   SHOWCASE_DEMO_SEGMENT — any | men | women | kids (default: men when row cap applies, else any).
+ *     Uses H&M-style HNMDefault~customerGroup (Man/Woman/Boy/Girl / combos).
  */
 import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { createReadStream } from "node:fs";
@@ -20,7 +20,6 @@ const DEFAULT_CSV = join(__root, "apps/showcase/data/catalog.csv");
 const OUT_DIR = join(__root, "apps/showcase/lib");
 const OUT_FILE = join(OUT_DIR, "demo-catalog.json");
 
-/** Auto-cap when CSV is large and SHOWCASE_DEMO_ROW_LIMIT is unset. Keeps Vercel bundle + Node heap sane. */
 const LARGE_CSV_BYTES = 20 * 1024 * 1024;
 const DEFAULT_CAP_FOR_LARGE_CSV = 25_000;
 
@@ -42,6 +41,7 @@ const HEADER_ALIASES = /** @type {Record<string, string>} */ ({
   color: "color",
   size: "size",
   "country of origin": "country_of_origin",
+  "hnmdefault~customergroup": "customer_group",
   "price ae": "price_ae",
   "price sa": "price_sa",
   "price.ae": "price_ae",
@@ -95,6 +95,54 @@ function parsePrice(s) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** @param {string} raw */
+function customerGroupTokens(raw) {
+  return String(raw || "")
+    .split(/[|,\/\s]+/g)
+    .map((x) => x.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+/**
+ * @param {Record<string, string>} row — aliased
+ * @param {string} segment — men | women | kids | any
+ */
+function matchesSegment(row, segment) {
+  if (segment === "any") return true;
+  const raw = row.customer_group || "";
+  const t = customerGroupTokens(raw);
+  if (t.length === 0) return false;
+
+  const hasMan = t.some((x) => x === "MAN" || x === "MEN" || x === "MENS" || x === "MEN'S");
+  const hasWoman = t.some((x) => x === "WOMAN" || x === "WOMEN" || x === "LADIES");
+  const hasBoy = t.includes("BOY");
+  const hasGirl = t.includes("GIRL");
+  const onlyChildTokens = (hasBoy || hasGirl) && !hasMan && !hasWoman;
+
+  if (segment === "men") {
+    if (onlyChildTokens) return false;
+    return hasMan;
+  }
+  if (segment === "women") {
+    if (onlyChildTokens) return false;
+    return hasWoman;
+  }
+  if (segment === "kids") {
+    return onlyChildTokens || t.some((x) => /^(BABY|CHILD|KID|JUNIOR|TODDLER|INFANT)$/.test(x));
+  }
+  return true;
+}
+
+/** Uniform reservoir sample: after stream, arr has min(k, seen) elements */
+function reservoirAdd(arr, item, k, seenCount) {
+  if (arr.length < k) {
+    arr.push(item);
+    return;
+  }
+  const j = Math.floor(Math.random() * seenCount);
+  if (j < k) arr[j] = item;
+}
+
 /** @param {Record<string, string>} row */
 function rowToProduct(row) {
   const productId = row.product_id || row.id;
@@ -113,6 +161,7 @@ function rowToProduct(row) {
   if (row.country_of_origin) attrs.country_of_origin = row.country_of_origin;
   if (row.brand) attrs.brand = row.brand;
   if (row.category) attrs.category = row.category;
+  if (row.customer_group) attrs.customer_group = row.customer_group.trim();
 
   const pricing = {};
   const pae = parsePrice(row.price_ae);
@@ -141,6 +190,7 @@ function rowToProduct(row) {
     row.sku || "",
     pid,
     row.composition || "",
+    row.customer_group || "",
   ]
     .join(" ")
     .toLowerCase();
@@ -163,6 +213,14 @@ function rowToProduct(row) {
   };
 }
 
+/** @param {number | null} maxRows */
+function resolveSegment(maxRows) {
+  const raw = (process.env.SHOWCASE_DEMO_SEGMENT ?? "").trim().toLowerCase();
+  if (raw === "any" || raw === "men" || raw === "women" || raw === "kids") return raw;
+  if (maxRows != null) return "men";
+  return "any";
+}
+
 /** @param {string | undefined} raw */
 function resolveRowLimit(csvPath, bytes) {
   const raw = process.env.SHOWCASE_DEMO_ROW_LIMIT;
@@ -175,10 +233,12 @@ function resolveRowLimit(csvPath, bytes) {
   return null;
 }
 
-async function streamCsvToProducts(csvPath, maxRows) {
-  /** @type {unknown[]} */
-  const products = [];
-
+/**
+ * @param {string} csvPath
+ * @param {number | null} maxRows — null = unlimited
+ * @param {string} segment
+ */
+async function streamCsvToProducts(csvPath, maxRows, segment) {
   const parser = createReadStream(csvPath).pipe(
     parse({
       columns: true,
@@ -188,14 +248,40 @@ async function streamCsvToProducts(csvPath, maxRows) {
     }),
   );
 
+  /** @type {unknown[]} */
+  const primary = [];
+  let seenPrimary = 0;
+
   for await (const rawRow of parser) {
     const aliased = aliasRow(/** @type {Record<string, string>} */ (rawRow));
     const p = rowToProduct(aliased);
-    if (p) products.push(p);
-    if (maxRows != null && products.length >= maxRows) break;
+    if (!p) continue;
+
+    if (segment === "any") {
+      if (maxRows == null) {
+        primary.push(p);
+      } else {
+        seenPrimary++;
+        reservoirAdd(primary, p, maxRows, seenPrimary);
+      }
+      continue;
+    }
+
+    if (!matchesSegment(aliased, segment)) continue;
+
+    if (maxRows == null) {
+      primary.push(p);
+    } else {
+      seenPrimary++;
+      reservoirAdd(primary, p, maxRows, seenPrimary);
+    }
   }
 
-  return products;
+  /** @type {unknown[]} */
+  const products = primary;
+  const segmentUnderfilled = segment !== "any" && maxRows != null && primary.length < maxRows;
+
+  return { products, segmentUnderfilled, seenSegment: seenPrimary };
 }
 
 async function main() {
@@ -243,7 +329,8 @@ async function main() {
   }
 
   const maxRows = resolveRowLimit(csvPath, bytes);
-  const products = await streamCsvToProducts(csvPath, maxRows);
+  const segment = resolveSegment(maxRows);
+  const { products, segmentUnderfilled, seenSegment } = await streamCsvToProducts(csvPath, maxRows, segment);
 
   mkdirSync(OUT_DIR, { recursive: true });
   const payload = {
@@ -254,16 +341,22 @@ async function main() {
       csvApproxBytes: bytes,
       limitApplied: maxRows,
       truncated: maxRows != null && products.length >= maxRows,
+      segment,
+      reservoirSampling: maxRows != null,
+      segmentUnderfilled,
+      rowsSeenInSegment: seenSegment,
       hint:
         maxRows != null
-          ? `CSV demo capped at ${maxRows.toLocaleString()} rows (large file). Ingest via gateway + OpenSearch for full catalog NL search with BM25 semantics.`
+          ? `Capped demo (${segment}): uniform random sample of up to ${maxRows.toLocaleString()} rows. Full-catalog search: ingest + COMMERCE_GATEWAY_URL.`
           : null,
     },
   };
   writeFileSync(OUT_FILE, JSON.stringify(payload), "utf8");
+  const u = segmentUnderfilled ? " — fewer than cap rows matched this segment." : "";
   console.log(
     `[demo-catalog] Wrote ${products.length.toLocaleString()} products → ${OUT_FILE}` +
-      (maxRows ? ` (row cap ${maxRows.toLocaleString()})` : ""),
+      (maxRows ? ` (cap ${maxRows.toLocaleString()}, segment=${segment})` : ` (segment=${segment}, full read)`) +
+      u,
   );
 }
 

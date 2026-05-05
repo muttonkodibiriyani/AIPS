@@ -156,7 +156,9 @@ More detail: [`services/catalog-ingestion/README.md`](./services/catalog-ingesti
 
    The sticky **header search bar** submits to the same **`/api/search`** path as the live playground; **`/?q=`** deep-links hydrate the playground.
 
-4. **`GET /api/health`** exposes **`csvCatalogRows`**, **`csvCatalogTruncated`**, **`csvCatalogRowCap`** so you can confirm cap behaviour on Preview/Production builds.
+   **`SHOWCASE_DEMO_SEGMENT`** (`any` · `men` · `women` · `kids`) — when a **row cap** applies (large file or explicit limit), defaults to **`men`** so storefront queries like “men’s sandals” match **`HNMDefault~customerGroup`** tokens (`Man`, `Man | Woman`, etc.). Plain **`any`** resumes a uniform random slice across the entire CSV (often dominated by whatever variety appears first). Set in Vercel **Environment Variables** if you need **`women`** or **`kids`**-only demo bundles without checking in the CSV.
+
+4. **`GET /api/health`** exposes **`csvCatalogRows`**, **`csvCatalogTruncated`**, **`csvCatalogRowCap`**, **`csvCatalogSegment`**.
 
 5. Push to GitHub (respecting Git LFS or size caps); Vercel redeploy runs **`prebuild`**. **`SHOWCASE_DEMO_SEARCH=true`** only matters when **`catalog.csv` is absent** **and** the generated JSON has **zero** rows (stub fallback).
 

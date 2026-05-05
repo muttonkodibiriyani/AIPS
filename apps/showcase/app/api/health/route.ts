@@ -10,10 +10,20 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const gw = process.env.COMMERCE_GATEWAY_URL?.trim() ?? "";
   const demo = process.env.SHOWCASE_DEMO_SEARCH === "true";
-  const dc = demoCatalog as { products?: unknown[]; buildMeta?: { truncated?: boolean; limitApplied?: number | null } };
+  const dc = demoCatalog as {
+    products?: unknown[];
+    buildMeta?: {
+      truncated?: boolean;
+      limitApplied?: number | null;
+      segment?: string;
+      segmentUnderfilled?: boolean;
+      reservoirSampling?: boolean;
+    };
+  };
   const csvCatalogRows = Array.isArray(dc.products) ? dc.products.length : 0;
   const csvCatalogTruncated = Boolean(dc.buildMeta?.truncated);
   const csvCatalogRowCap = dc.buildMeta?.limitApplied ?? null;
+  const csvCatalogSegment = dc.buildMeta?.segment ?? null;
 
   return NextResponse.json({
     gatewayConfigured: gw.length > 0,
@@ -22,6 +32,7 @@ export async function GET() {
     csvCatalogRows,
     csvCatalogTruncated,
     csvCatalogRowCap,
+    csvCatalogSegment,
     offlineSearchAvailable: csvCatalogRows > 0,
     gitCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
   });

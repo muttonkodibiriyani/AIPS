@@ -1,4 +1,4 @@
-type ProductRecord = {
+export type ProductRecord = {
   product_id: string;
   sku: string;
   market: string;
@@ -18,6 +18,10 @@ export type DemoCatalogBuildMeta = {
   truncated?: boolean;
   hint?: string | null;
   empty?: boolean;
+  segment?: string;
+  reservoirSampling?: boolean;
+  segmentUnderfilled?: boolean;
+  rowsSeenInSegment?: number;
 };
 
 export type DemoCatalogFile = {
@@ -124,6 +128,45 @@ function extractPriceCap(query: string): number | null {
   if (!m) return null;
   const n = parseFloat(m[1].replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+function customerGroupTokens(raw: string): string[] {
+  return String(raw ?? "")
+    .split(/[|,\/\s]+/u)
+    .map((x) => x.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+/** NL cues like “men sandals” → constrain by CSV customer_group when present. */
+function genderIntent(query: string): "men" | "women" | "kids" | null {
+  const q = query.toLowerCase();
+  if (/\b(women'?s|womens|ladies|lady|for women|womenwear)\b|\bwoman\b|\bfemale\b/.test(q)) return "women";
+  if (/\b(boys?|girls?|kids?|children|child|bab(y|ies)|toddlers?|junior)\b/.test(q)) return "kids";
+  if (/\b(men'?s|mens|menswear|for men)\b|\bman\b|\bmale\b/.test(q)) return "men";
+  return null;
+}
+
+/** Mirrors generate-demo-catalog segment rules for runtime filtering. */
+export function productMatchesGenderSegment(attrs: Record<string, string> | undefined, intent: "men" | "women" | "kids"): boolean {
+  const raw = attrs?.customer_group ?? "";
+  const t = customerGroupTokens(raw);
+  if (t.length === 0) return true;
+
+  const hasMan = t.some((x) => x === "MAN" || x === "MEN" || x === "MENS" || x === "MEN'S");
+  const hasWoman = t.some((x) => x === "WOMAN" || x === "WOMEN" || x === "LADIES");
+  const hasBoy = t.includes("BOY");
+  const hasGirl = t.includes("GIRL");
+  const onlyChildTokens = (hasBoy || hasGirl) && !hasMan && !hasWoman;
+
+  if (intent === "men") {
+    if (onlyChildTokens) return false;
+    return hasMan;
+  }
+  if (intent === "women") {
+    if (onlyChildTokens) return false;
+    return hasWoman;
+  }
+  return onlyChildTokens || t.some((x) => /^(BABY|CHILD|KID|KIDS|JUNIOR|TODDLER|INFANT)$/u.test(x));
 }
 
 function colorHint(query: string): string | null {
@@ -243,6 +286,7 @@ export function searchCsvDemoCatalog(
   const size = Math.min(pagination.size ?? 24, 100);
   const cap = extractPriceCap(query);
   const colorWant = colorHint(query);
+  const genderWant = genderIntent(query);
   const phrase = normalizeQueryPhrase(query);
   const qtok = queryTokens(query);
 
@@ -250,6 +294,13 @@ export function searchCsvDemoCatalog(
 
   if (cap != null) {
     filtered = filtered.filter((p) => priceMax(p.pricing) <= cap);
+  }
+
+  if (genderWant) {
+    const withGroup = filtered.filter((p) => (p.attrs?.customer_group ?? "").trim().length > 0);
+    if (withGroup.length > 0) {
+      filtered = filtered.filter((p) => productMatchesGenderSegment(p.attrs, genderWant));
+    }
   }
 
   if (colorWant) {
@@ -296,6 +347,7 @@ export function searchCsvDemoCatalog(
       source: "csv_catalog",
       tenantId,
       priceCap: cap,
+      genderIntent: genderWant,
       colorHint: colorWant,
       queryTokens: qtok.slice(0, 12),
       phrase,

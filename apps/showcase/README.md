@@ -15,7 +15,7 @@ npm run dev -w @commerce-ai/showcase
 
 3. Leave **`COMMERCE_GATEWAY_URL`** unset in `.env.local` — search runs **in-process** over the generated JSON.
 
-On **Vercel**, `prebuild` runs the generator. If **`catalog.csv` is not in the checkout**, the committed **`demo-catalog.json`** is kept (so CI deploys ship a capped catalog snapshot). Oversized CSVs (> ~20 MB) are streamed with a **25 000** row cap unless **`SHOWCASE_DEMO_ROW_LIMIT`** overrides.
+On **Vercel**, `prebuild` runs the generator. If **`catalog.csv` is not in the checkout**, the committed **`demo-catalog.json`** is kept (so CI deploys ship a capped catalog snapshot). Oversized CSVs (> ~20 MB) use a **25 000** row cap and **uniform reservoir sampling** (not “first N rows”). Large truncated builds default to **`SHOWCASE_DEMO_SEGMENT=men`** (see root env or `DEPLOYMENT_SHOWCASE.md`); use **`any`**, **`women`**, or **`kids`** as needed. **`SHOWCASE_DEMO_ROW_LIMIT`** overrides the cap.
 
 ## Local (with real gateway)
 
