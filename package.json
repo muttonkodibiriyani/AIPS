@@ -9,7 +9,7 @@
     "types:generate": "pnpm exec openapi-typescript contracts/openapi.yaml -o packages/shared-types/src/generated/api.ts --export-type --path-params-as-types",
     "gateway:dev": "pnpm --filter @commerce-ai/api-gateway start:dev",
     "showcase:dev": "pnpm --filter @commerce-ai/showcase dev",
-    "showcase:build": "pnpm --filter @commerce-ai/showcase build",
+    "showcase:build": "pnpm --filter @commerce-ai/showcase build"
   },
   "devDependencies": {
     "openapi-typescript": "^7.4.4",
