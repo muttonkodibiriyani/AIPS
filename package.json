@@ -2,6 +2,11 @@
   "name": "commerce-ai",
   "private": true,
   "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/api-gateway"
+  ],
   "engines": {
     "node": "20.x"
   },

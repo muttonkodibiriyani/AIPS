@@ -14,6 +14,8 @@ on:
     paths:
       - "apps/showcase/**"
       - "package.json"
+      - "pnpm-workspace.yaml"
+      - "vercel.json"
       - "scripts/**"
 
 jobs:
@@ -25,17 +27,12 @@ jobs:
       - name: Validate package.json manifests (strict JSON)
         run: node scripts/validate-package-json.mjs
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
 
-      - name: Install deps
-        run: pnpm install --no-frozen-lockfile
+      - name: Install deps (npm workspaces — same as Vercel)
+        run: npm install
 
       - name: Build showcase
-        run: pnpm --filter @commerce-ai/showcase build
+        run: npm run build -w @commerce-ai/showcase

@@ -32,9 +32,9 @@ The simplest path **does not use** the optional GitHub Action in [`.github/workf
 | Root Directory | Config used |
 |----------------|-------------|
 | **`apps/showcase`** (recommended) | Next.js presets + [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) (`install` / `build` jump to the monorepo root via `cd ../..`). |
-| **`.`** (repository root) | Repo root [`vercel.json`](./vercel.json): **`pnpm install`** → **`pnpm --filter @commerce-ai/showcase build`** → output **`apps/showcase/.next`**. |
+| **`.`** (repository root) | Repo root [`vercel.json`](./vercel.json): **`npm install`** (workspaces in root [`package.json`](./package.json)) → **`npm run build -w @commerce-ai/showcase`** → output **`apps/showcase/.next`**. |
 
-If Root Directory is **`.`** but **Project → Settings → Build & Development** overrides **Build** to **`npm run build`**, Vercel runs Turbo for the whole repo with **npm**, **`apps/showcase`** never gets a proper install, and you see **`next: command not found`**. Clear those overrides (use framework defaults) **or** import root [`vercel.json`](./vercel.json).
+If Root Directory is **`.`** but **Project → Settings → Build & Development** overrides **Install** / **Build**, Vercel can ignore [`vercel.json`](./vercel.json) and fall back to **`npm run build`** at the root (full Turbo) or a broken **`pnpm install`**. Clear those overrides so the config above applies.
 
 1. [Vercel](https://vercel.com) → **Add New** → **Project** → import **muttonkodibiriyani/AIPS**.
 2. **Root Directory:** **`apps/showcase`** **or** **`.`** per the table above.
@@ -45,13 +45,15 @@ If Root Directory is **`.`** but **Project → Settings → Build & Development*
    | `COMMERCE_GATEWAY_URL` | Public HTTPS base URL of Nest gateway (must be reachable by Vercel’s build/runtime, e.g. `https://api.yourdomain.com`) |
    | `COMMERCE_API_KEY` | Same bearer key configured on the gateway (stub default often `pk_stub` in local `.env`). |
 
-4. **Node.js version:** Vercel must use **Node 20.x** for `pnpm install` (Node 22 + pnpm 9 can fail with `ERR_INVALID_THIS` / `URLSearchParams` when talking to the npm registry). The repo pins this via **`engines.node`** in [`package.json`](./package.json) and [`apps/showcase/package.json`](./apps/showcase/package.json) plus [`.nvmrc`](./.nvmrc). If a deployment still uses Node 22, set **Project → Settings → General → Node.js Version** to **20.x** explicitly.
+4. **Node.js version:** Keep **Node 20.x** for the build (see [`engines`](./package.json)). Vercel documents version selection in [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions).
 
 5. Deploy. Subsequent pushes to the connected branch redeploy automatically.
 
+Install on Vercel uses **`npm`** + **workspaces** (not `pnpm`) because `pnpm` registry fetches intermittently fail on Vercel with **`ERR_INVALID_THIS`** / **`URLSearchParams`**. Local development can still use **`pnpm`** (`pnpm-workspace.yaml` is unchanged).
+
 [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) applies when the Vercel **Root Directory** is `apps/showcase`. The repo root [`vercel.json`](./vercel.json) applies when the root directory is **`.`**.
 
-Generate and commit **`pnpm-lock.yaml`** from the repo root (`pnpm install`) for faster, reproducible installs and so Turborepo can resolve workspaces (optional but recommended).
+Optional: commit **`package-lock.json`** (`npm install` at the repo root) for faster, reproducible Vercel installs. If you mostly use **pnpm** locally, also commit **`pnpm-lock.yaml`** after `pnpm install` so Turborepo and `pnpm` workflows stay deterministic.
 
 ---
 
@@ -140,7 +142,7 @@ Set `COMMERCE_GATEWAY_URL` and `COMMERCE_API_KEY` in the process environment. Se
 2. If the commit is older (for example **`e6585f0`**), Vercel is redeploying a stale revision. Fix: **Project → Deployments →** open the newest deployment produced by a **push** to **`main`**, or **Redeploy** from the dashboard after selecting **the latest Git commit**. Do **not** only “Redo” an old deployment.
 3. In **Project Settings → Git**, confirm the repo is **`muttonkodibiriyani/AIPS`**, production branch **`main`**, and **Root Directory** **`apps/showcase`** (or **`./`** if you use root [`vercel.json`](./vercel.json)).
 4. Log shows **`Running "npm run build"`** → **`next: command not found`**: you are building from the repo root with **npm** + full Turbo instead of **`pnpm`** + showcase only. Use root [`vercel.json`](./vercel.json) and clear dashboard build overrides, **or** set Root Directory to **`apps/showcase`**.
-5. **`pnpm install` fails** with **`ERR_INVALID_THIS`**, **`ERR_PNPM_META_FETCH_FAIL`**, or **`Value of "this" must be of type URLSearchParams`**: the build is almost certainly on **Node 22** while using **pnpm 9**. Use **Node 20.x** (see deploy step **4** above: `engines` / **Project → Settings → General → Node.js Version**).
+5. **`pnpm install` fails** with **`ERR_INVALID_THIS`**, **`ERR_PNPM_META_FETCH_FAIL`**, or **`Value of "this" must be of type URLSearchParams`**: Vercel installs in this repo use **`npm install`** (see root [`vercel.json`](./vercel.json)) specifically to avoid **`pnpm`** registry bugs on Vercel builds. If your project still runs **`pnpm install`**, clear dashboard **Install Command** overrides so [`vercel.json`](./vercel.json) applies (see also [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions) and **Node 20.x** via `engines`).
 
 [GitHub `main`/package.json](https://github.com/muttonkodibiriyani/AIPS/blob/main/package.json) must parse as strict JSON (no trailing commas).
 
