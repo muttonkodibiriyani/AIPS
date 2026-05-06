@@ -1,0 +1,6 @@
+# Vercel CLI upload omits paths listed here — merchant CSV is often far above ~100 MiB per-file limit.
+# Prefer Git-triggered deployments (Root Directory: apps/showcase).
+node_modules/
+.next/
+.turbo/
+data/catalog.csv
