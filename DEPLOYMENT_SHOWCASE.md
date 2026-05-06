@@ -44,6 +44,8 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
    |-----|--------|----------|
    | `SHOWCASE_DEMO_SEARCH` | `true` | Production · Preview · Development |
 
+   **Large offline demo (200k SKUs, stratified across *all* merch slugs):** set **`SHOWCASE_DEMO_ROW_LIMIT`=`200000`** on the build (already default in [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) `build.env`). The prebuild **must** see your **`catalog.csv`** at build time (not in git by default): upload the file into the build (e.g. **Vercel → Project → Settings → Environment** with a [build-time source](https://vercel.com/docs/deployments/configure-a-build#environment-variables), or CI step that writes `apps/showcase/data/catalog.csv` before `next build`). Without the CSV, the generator **keeps** the last committed `demo-catalog.json` and the cap is ignored.
+
    Click **Save** for each row, then **Deployments → … → Redeploy** — **environment variables apply only after a redeploy.**
 
    You do **not** need **Sensitive** for `SHOWCASE_DEMO_SEARCH=true` or `COMMERCE_GATEWAY_URL` (both are usually non‑secret demo flags); use Sensitive only if your team policy requires masking `COMMERCE_API_KEY`.

@@ -2,5 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "cd ../.. && npm install",
-  "buildCommand": "npm run build"
+  "buildCommand": "npm run build",
+  "build": {
+    "env": {
+      "SHOWCASE_DEMO_ROW_LIMIT": "200000"
+    }
+  }
 }

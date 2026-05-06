@@ -12,7 +12,7 @@
  *     (home, footwear, tops, bottoms, …) instead of one random slice of rows.
  *   SHOWCASE_DEMO_MERCH_ONLY — slug: keep rows in that merchandising bucket only (see CATEGORY_TARGET_FRACTIONS keys
  *     in apps/showcase/lib/merch-category.mjs). Example: footwear_sandals_slides for “sandals-only” demo.
- *     Row budget: SHOWCASE_DEMO_ROW_LIMIT if set; else SHOWCASE_DEMO_MERCH_SOFT_CAP (default 300000);
+ *     Row budget: SHOWCASE_DEMO_ROW_LIMIT if set; else SHOWCASE_DEMO_MERCH_SOFT_CAP (default 200000);
  *     set SHOWCASE_DEMO_MERCH_UNLIMITED=1 to ingest every CSV row matching the slug (very large JSON possible).
  */
 import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -35,9 +35,10 @@ const OUT_DIR = join(__root, "apps/showcase/lib");
 const OUT_FILE = join(OUT_DIR, "demo-catalog.json");
 
 const LARGE_CSV_BYTES = 20 * 1024 * 1024;
-const DEFAULT_CAP_FOR_LARGE_CSV = 72_000;
-/** When SHOWCASE_DEMO_MERCH_ONLY is set and ROW_LIMIT omitted, reservoir up to this many SKUs before MERCH_UNLIMITED. */
-const DEFAULT_MERCH_SOFT_CAP = 300_000;
+/** Large CSV default: stratified reservoir across **all** merch slugs (`CATEGORY_TARGET_FRACTIONS`). */
+const DEFAULT_CAP_FOR_LARGE_CSV = 200_000;
+/** Merch-only mode soft cap when `SHOWCASE_DEMO_ROW_LIMIT` is unset. */
+const DEFAULT_MERCH_SOFT_CAP = 200_000;
 
 function normalizeMerchSlug(s) {
   return String(s ?? "")
