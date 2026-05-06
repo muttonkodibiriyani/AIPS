@@ -98,12 +98,64 @@ function parseModelJson(text: string): CsvSearchLlmAugment | null {
   }
 }
 
-async function callGemini(userQuery: string, signal: AbortSignal): Promise<CsvSearchLlmAugment | null> {
+function tokenUnion(...phrases: (string | undefined)[]): string | undefined {
+  const s = new Set<string>();
+  for (const ph of phrases) {
+    if (!ph) continue;
+    for (const t of ph.trim().split(/\s+/)) {
+      if (t.length) s.add(t);
+    }
+  }
+  const joined = [...s].slice(0, 80).join(" ");
+  return joined.length ? joined : undefined;
+}
+
+/** Merge intents from parallel models (Gemini family + OpenRouter). Earlier entries win conflicting `gender`. */
+export function mergeLlmAugments(ordered: readonly CsvSearchLlmAugment[]): CsvSearchLlmAugment | null {
+  const parts = ordered.filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const out: CsvSearchLlmAugment = {};
+
+  for (const p of parts) {
+    if (p.gender && !out.gender) out.gender = p.gender;
+    if (p.apparelOnly) out.apparelOnly = true;
+  }
+
+  const ex = tokenUnion(...parts.map((p) => p.expandedLexical));
+  if (ex) out.expandedLexical = ex.slice(0, 400);
+
+  const merch = new Set<string>();
+  const colors = new Set<string>();
+  const neg = new Set<string>();
+  for (const p of parts) {
+    for (const x of p.merchSlugs ?? []) merch.add(x);
+    for (const x of p.extraColors ?? []) colors.add(x);
+    for (const x of p.negatedTerms ?? []) neg.add(x);
+  }
+  if (merch.size) out.merchSlugs = [...merch].slice(0, 10);
+  if (colors.size) out.extraColors = [...colors].slice(0, 10);
+  if (neg.size) out.negatedTerms = [...neg].slice(0, 14);
+
+  return llmAugmentFromJson({
+    gender: out.gender ?? null,
+    apparel_only: out.apparelOnly ?? false,
+    expanded_keywords: out.expandedLexical ?? "",
+    merch_slugs: out.merchSlugs ?? [],
+    colors: out.extraColors ?? [],
+    negated_terms: out.negatedTerms ?? [],
+  });
+}
+
+async function callGeminiWithModel(
+  userQuery: string,
+  model: string,
+  signal: AbortSignal,
+): Promise<CsvSearchLlmAugment | null> {
   const key =
     (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim() || null;
   if (!key) return null;
 
-  const model = (process.env.GEMINI_MODEL ?? "gemini-2.0-flash").trim();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     model,
   )}:generateContent?key=${encodeURIComponent(key)}`;
@@ -135,6 +187,11 @@ async function callGemini(userQuery: string, signal: AbortSignal): Promise<CsvSe
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (typeof text !== "string") return null;
   return parseModelJson(text);
+}
+
+async function callGemini(userQuery: string, signal: AbortSignal): Promise<CsvSearchLlmAugment | null> {
+  const model = (process.env.GEMINI_MODEL ?? "gemini-2.0-flash").trim();
+  return callGeminiWithModel(userQuery, model, signal);
 }
 
 async function callOpenRouter(userQuery: string, signal: AbortSignal): Promise<CsvSearchLlmAugment | null> {
@@ -176,36 +233,81 @@ async function callOpenRouter(userQuery: string, signal: AbortSignal): Promise<C
   return parseModelJson(text);
 }
 
+export type LlmTeamResult = {
+  merged: CsvSearchLlmAugment | null;
+  /** Non-null partial intents collected before merge */
+  memberCount: number;
+  parallel: boolean;
+};
+
 /**
- * Calls Gemini (preferred) or OpenRouter when keys exist. Never throws; returns null on failure/timeouts.
- * Disable with SHOWCASE_LLM_INTENT=false.
+ * Runs multiple intent extractors in parallel when enabled (Gemini primary, optional `GEMINI_TEAM_MODEL_SECOND`,
+ * OpenRouter). Merges JSON cues so offline lexical search gets a richer, consensus-style augment.
+ *
+ * `SHOWCASE_LLM_PARALLEL=false` → sequential Gemini then OpenRouter (fewer concurrent API calls).
  */
-export async function fetchLlmSearchAugment(query: string): Promise<CsvSearchLlmAugment | null> {
-  if (process.env.SHOWCASE_LLM_INTENT === "false") return null;
+export async function fetchLlmSearchAugmentTeam(query: string): Promise<LlmTeamResult> {
+  if (process.env.SHOWCASE_LLM_INTENT === "false") {
+    return { merged: null, memberCount: 0, parallel: false };
+  }
   const q = query.trim();
-  if (q.length < 2) return null;
+  if (q.length < 2) return { merged: null, memberCount: 0, parallel: false };
 
   const hasGemini = Boolean(
     (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim(),
   );
   const hasOr = Boolean((process.env.OPENROUTER_API_KEY ?? "").trim());
-  if (!hasGemini && !hasOr) return null;
+  if (!hasGemini && !hasOr) return { merged: null, memberCount: 0, parallel: false };
 
   const ms = Number(process.env.SHOWCASE_LLM_TIMEOUT_MS ?? "10000");
   const timeout = Number.isFinite(ms) && ms >= 2000 && ms <= 25000 ? ms : 10000;
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeout);
 
+  const parallelOn = process.env.SHOWCASE_LLM_PARALLEL !== "false";
+  const secondaryModel = (process.env.GEMINI_TEAM_MODEL_SECOND ?? "").trim();
+
   try {
-    if (hasGemini) {
-      const g = await callGemini(q, ctl.signal);
-      if (g) return g;
+    if (!parallelOn) {
+      if (hasGemini) {
+        const g = await callGemini(q, ctl.signal);
+        if (g) return { merged: g, memberCount: 1, parallel: false };
+      }
+      if (hasOr) {
+        const o = await callOpenRouter(q, ctl.signal);
+        return { merged: o, memberCount: o ? 1 : 0, parallel: false };
+      }
+      return { merged: null, memberCount: 0, parallel: false };
     }
-    if (hasOr) return await callOpenRouter(q, ctl.signal);
-    return null;
+
+    const tasks: Promise<CsvSearchLlmAugment | null>[] = [];
+    if (hasGemini) {
+      tasks.push(callGemini(q, ctl.signal));
+      if (secondaryModel) tasks.push(callGeminiWithModel(q, secondaryModel, ctl.signal));
+    }
+    if (hasOr) tasks.push(callOpenRouter(q, ctl.signal));
+
+    if (tasks.length === 0) return { merged: null, memberCount: 0, parallel: true };
+
+    const chunk = await Promise.all(
+      tasks.map((p) =>
+        p.catch((): CsvSearchLlmAugment | null => null),
+      ),
+    );
+    const ok = chunk.filter((x): x is CsvSearchLlmAugment => x != null);
+    const merged = mergeLlmAugments(ok);
+    return { merged, memberCount: ok.length, parallel: true };
   } catch {
-    return null;
+    return { merged: null, memberCount: 0, parallel: parallelOn };
   } finally {
     clearTimeout(t);
   }
+}
+
+/**
+ * Back-compat: same as `fetchLlmSearchAugmentTeam` then returns merged intent only.
+ */
+export async function fetchLlmSearchAugment(query: string): Promise<CsvSearchLlmAugment | null> {
+  const r = await fetchLlmSearchAugmentTeam(query);
+  return r.merged;
 }

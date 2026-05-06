@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import type { DemoCatalogFile } from "@/lib/csv-demo-search";
 import { searchCsvDemoCatalog } from "@/lib/csv-demo-search";
-import { fetchLlmSearchAugment } from "@/lib/llm-intent";
+import { fetchLlmSearchAugmentTeam } from "@/lib/llm-intent";
+import { fuseLlmFirstProductRank } from "@/lib/search-fusion";
 import demoCatalog from "@/lib/demo-catalog.json";
 
 type ProductCard = Record<string, unknown>;
@@ -17,16 +18,103 @@ async function csvSearchResponse(body: Record<string, unknown>) {
       ? (body.pagination as { from?: number; size?: number })
       : {};
 
-  const llmAugment = await fetchLlmSearchAugment(query);
-
-  const r = searchCsvDemoCatalog(csvBundle, query, tenantId, pagination, {
-    llmAugment: llmAugment ?? undefined,
-  });
+  const from = pagination.from ?? 0;
+  const size = Math.min(pagination.size ?? 24, 100);
 
   const llmEnabled =
     process.env.SHOWCASE_LLM_INTENT !== "false" &&
     (Boolean((process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim()) ||
       Boolean((process.env.OPENROUTER_API_KEY ?? "").trim()));
+
+  const fusionEnabled = process.env.SHOWCASE_SEARCH_FUSION !== "false" && llmEnabled;
+
+  /** Parallel LLM lane + pure-lexical lane merged with LLM-weighted ranking first */
+  if (fusionEnabled) {
+    const capRaw = parseInt(String(process.env.SHOWCASE_SEARCH_FUSE_CAP ?? ""), 10);
+    const fuseWindow =
+      Number.isFinite(capRaw) && capRaw >= 80 && capRaw <= 2000 ? capRaw : Math.min(380, Math.max(size * 14, 160));
+
+    const [team, lexWide] = await Promise.all([
+      fetchLlmSearchAugmentTeam(query),
+      Promise.resolve(searchCsvDemoCatalog(csvBundle, query, tenantId, { from: 0, size: fuseWindow }, {})),
+    ]);
+
+    const merged = team.merged;
+
+    if (!merged) {
+      const r = searchCsvDemoCatalog(csvBundle, query, tenantId, { from, size }, {});
+      return NextResponse.json({
+        products: r.products,
+        facets: r.facets,
+        total: r.total,
+        appliedFilters: {
+          ...r.appliedFilters,
+          hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
+          searchFusion: {
+            attempted: true,
+            applied: false,
+            fuseWindow,
+            llmTeamMembersSucceeded: team.memberCount,
+            llmParallel: team.parallel,
+            reason: "intent_unavailable",
+          },
+        },
+        interpretation: {
+          lexicalWeight: 1,
+          semanticWeight: 0,
+          fusion: false,
+          llmLexicalLanePriority: false,
+          llmIntentAttempted: llmEnabled,
+          llmIntentApplied: false,
+          llmTeamMembersSucceeded: team.memberCount,
+          llmParallel: team.parallel,
+        },
+      });
+    }
+
+    const llmWide = searchCsvDemoCatalog(csvBundle, query, tenantId, { from: 0, size: fuseWindow }, {
+      llmAugment: merged,
+    });
+
+    const fusedList = fuseLlmFirstProductRank(llmWide.products, lexWide.products);
+    const products = fusedList.slice(from, from + size);
+
+    return NextResponse.json({
+      products,
+      facets: llmWide.facets,
+      total: fusedList.length,
+      appliedFilters: {
+        ...llmWide.appliedFilters,
+        hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
+        searchFusion: {
+          attempted: true,
+          applied: true,
+          fuseWindow,
+          llmLaneHits: llmWide.products.length,
+          lexicalLaneHits: lexWide.products.length,
+          fusedUnique: fusedList.length,
+          llmTeamMembersSucceeded: team.memberCount,
+          llmParallel: team.parallel,
+        },
+      },
+      interpretation: {
+        lexicalWeight: 0.55,
+        semanticWeight: 0,
+        fusion: true,
+        llmLexicalLanePriority: true,
+        pureLexicalLaneMerged: true,
+        llmIntentAttempted: llmEnabled,
+        llmIntentApplied: true,
+        llmTeamMembersSucceeded: team.memberCount,
+        llmParallel: team.parallel,
+      },
+    });
+  }
+
+  const team = await fetchLlmSearchAugmentTeam(query);
+  const r = searchCsvDemoCatalog(csvBundle, query, tenantId, { from, size }, {
+    llmAugment: team.merged ?? undefined,
+  });
 
   return NextResponse.json({
     products: r.products,
@@ -35,12 +123,17 @@ async function csvSearchResponse(body: Record<string, unknown>) {
     appliedFilters: {
       ...r.appliedFilters,
       hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
+      searchFusion: { attempted: false, applied: false, reason: "fusion_disabled" },
     },
     interpretation: {
       lexicalWeight: 1,
       semanticWeight: 0,
+      fusion: false,
+      llmLexicalLanePriority: Boolean(team.merged),
       llmIntentAttempted: llmEnabled,
-      llmIntentApplied: Boolean(llmAugment),
+      llmIntentApplied: Boolean(team.merged),
+      llmTeamMembersSucceeded: team.memberCount,
+      llmParallel: team.parallel,
     },
   });
 }

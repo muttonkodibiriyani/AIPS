@@ -48,17 +48,21 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
 
    **Automated rebuild loop:** Create a Vercel [**Deploy Hook**](https://vercel.com/docs/deploy-hooks), add GitHub secret **`VERCEL_DEPLOY_HOOK_URL`**. Workflow [`.github/workflows/showcase-deploy-hook.yml`](./.github/workflows/showcase-deploy-hook.yml) POSTs to it on **push** (showcase paths), **every 6 hours**, and **workflow_dispatch** so new catalog exports can be picked up without code changes (as long as **`SHOWCASE_CATALOG_URL`** resolves to the updated file).
 
-   **Optional — offline NL intent (Gemini or OpenRouter merged into lexical CSV search):** When **`COMMERCE_GATEWAY_URL`** is unset and **`demo-catalog.json`** is present, **`POST /api/search`** can perform one LLM call per request for structured cues (colours, merch slugs, synonym tokens, negations, apparel-only, gender). That payload is merged into **`searchCsvDemoCatalog`** ([`csv-demo-search.ts`](./apps/showcase/lib/csv-demo-search.ts)). Timeouts or failures fall back to lexical search only.
+   **Optional — offline NL intent + parallel “Gemini team” + fused ranking:** When **`COMMERCE_GATEWAY_URL`** is unset and **`demo-catalog.json`** is present, **`POST /api/search`** gathers JSON intent cues (colours, merch slugs, synonym tokens, negations, apparel-only, gender). **Multiple LLM backends** (**Gemini** primary, optional second **`GEMINI_TEAM_MODEL_SECOND`**, **OpenRouter**) run **in parallel** when keys exist (`SHOWCASE_LLM_PARALLEL` unset); responses are **merged** then applied to lexical scoring. **`SHOWCASE_SEARCH_FUSION`** (default **on**) also runs **pure lexical** retrieval in parallel and **fuses** results with the **LLM-augmented ranked list first** (then extra lexical-only SKUs).
 
    | Key | Example | Notes |
    |-----|---------|--------|
-   | **`GEMINI_API_KEY`** or **`GOOGLE_GENERATIVE_AI_API_KEY`** | *(Google AI Studio)* | Tried first; **`GEMINI_MODEL`** defaults to **`gemini-2.0-flash`**. Full [ADK](https://adk.dev/get-started/) agent hosting is optional — this app uses the Gemini REST API. |
-   | **`OPENROUTER_API_KEY`** | *(OpenRouter)* | Fallback; **`OPENROUTER_MODEL`** defaults to **`google/gemini-2.0-flash-001:free`** (pin a stable free/paid model in production). |
+   | **`GEMINI_API_KEY`** or **`GOOGLE_GENERATIVE_AI_API_KEY`** | *(Google AI Studio)* | Primary Gemini call; **`GEMINI_MODEL`** defaults to **`gemini-2.0-flash`**. |
+   | **`GEMINI_TEAM_MODEL_SECOND`** | e.g. **`gemini-2.5-flash-preview-05-20`** | Optional **second Gemini** intent call in parallel (same API key). |
+   | **`OPENROUTER_API_KEY`** | *(OpenRouter)* | Parallel / alternate extractor; **`OPENROUTER_MODEL`** defaults to **`google/gemini-2.0-flash-001:free`**. |
    | **`OPENROUTER_HTTP_REFERRER`** | `https://your-showcase.vercel.app` | Optional `HTTP-Referer` header. |
-   | **`SHOWCASE_LLM_INTENT`** | omit or **`true`** | Set **`false`** to disable outbound LLM calls. |
-   | **`SHOWCASE_LLM_TIMEOUT_MS`** | **`10000`** | Per-request timeout (clamped **2000–25000** ms in code). |
+   | **`SHOWCASE_LLM_INTENT`** | omit or **`true`** | **`false`** disables outbound LLMs. |
+   | **`SHOWCASE_LLM_PARALLEL`** | omit or **`true`** | **`false`** runs **Gemini then OpenRouter** sequentially (fewer simultaneous API calls). |
+   | **`SHOWCASE_LLM_TIMEOUT_MS`** | **`10000`** | Shared abort window per request (**2000–25000** ms). |
+   | **`SHOWCASE_SEARCH_FUSION`** | omit or **`true`** | **`false`** — single lexical pass with merged intent only (no parallel pure-lexical lane / fuse). |
+   | **`SHOWCASE_SEARCH_FUSE_CAP`** | **`320`** | Top **N** candidates per lane before merging (**80–2000**). |
 
-   **`GET /api/health`** returns **`llmIntentConfigured`**. Search JSON includes **`appliedFilters.llmAugmentSummary`** and **`interpretation.llmIntentAttempted`** / **`interpretation.llmIntentApplied`**.
+   **`GET /api/health`** returns **`llmIntentConfigured`**. Search JSON includes **`appliedFilters.llmAugmentSummary`**, **`appliedFilters.searchFusion`**, **`interpretation.fusion`**, **`interpretation.llmParallel`**, **`interpretation.llmTeamMembersSucceeded`**.
 
    Click **Save** for each row, then **Deployments → … → Redeploy** — **environment variables apply only after a redeploy.**
 

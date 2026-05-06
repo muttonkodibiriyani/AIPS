@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DemoCatalogFile, ProductRecord } from "./csv-demo-search";
 import { searchCsvDemoCatalog } from "./csv-demo-search";
-import { fetchLlmSearchAugment, llmAugmentFromJson } from "./llm-intent";
+import { fetchLlmSearchAugment, fetchLlmSearchAugmentTeam, llmAugmentFromJson, mergeLlmAugments } from "./llm-intent";
 
 describe("llmAugmentFromJson", () => {
   it("maps recognised fields", () => {
@@ -30,13 +30,36 @@ describe("llmAugmentFromJson", () => {
   });
 });
 
-describe("fetchLlmSearchAugment (mocked fetch)", () => {
+describe("mergeLlmAugments", () => {
+  it("keeps first gender and unions other fields", () => {
+    const m = mergeLlmAugments([
+      { gender: "men", expandedLexical: "sandals sliders", merchSlugs: ["footwear_sandals_slides"] },
+      {
+        gender: "women",
+        apparelOnly: true,
+        expandedLexical: "beach lightweight",
+        extraColors: ["navy"],
+        negatedTerms: ["belt"],
+        merchSlugs: ["footwear_sneakers"],
+      },
+    ]);
+    expect(m?.gender).toBe("men");
+    expect(m?.apparelOnly).toBe(true);
+    expect(m?.extraColors).toContain("navy");
+    expect(m?.merchSlugs?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(m?.expandedLexical?.includes("sandals")).toBe(true);
+    expect(m?.expandedLexical?.includes("lightweight")).toBe(true);
+  });
+});
+
+describe("fetchLlmSearchAugmentTeam / fetchLlmSearchAugment (mocked fetch)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     delete process.env.GEMINI_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.SHOWCASE_LLM_INTENT;
+    delete process.env.SHOWCASE_LLM_PARALLEL;
   });
 
   it("prefers Gemini and parses JSON text", async () => {
@@ -76,9 +99,118 @@ describe("fetchLlmSearchAugment (mocked fetch)", () => {
     expect(url).toContain("generativelanguage.googleapis.com");
   });
 
-  it("falls back to OpenRouter when Gemini returns non-OK", async () => {
+  it("falls back to OpenRouter when Gemini returns non-OK (parallel team — both may be invoked)", async () => {
     process.env.GEMINI_API_KEY = "bad";
     process.env.OPENROUTER_API_KEY = "or-key";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation((url: string | Request) => {
+          const u = String(url);
+          if (u.includes("generativelanguage.googleapis.com")) {
+            return Promise.resolve({ ok: false, json: async () => ({}) });
+          }
+          if (u.includes("openrouter.ai")) {
+            return Promise.resolve({
+              ok: true,
+              json: async () => ({
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify({
+                        gender: null,
+                        apparel_only: false,
+                        expanded_keywords: "sandals flat",
+                        merch_slugs: ["footwear_sandals_slides"],
+                        colors: [],
+                        negated_terms: [],
+                      }),
+                    },
+                  },
+                ],
+              }),
+            });
+          }
+          return Promise.resolve({ ok: false, json: async () => ({}) });
+        }),
+    );
+
+    const team = await fetchLlmSearchAugmentTeam("summer open shoes");
+    expect(team.parallel).toBe(true);
+    expect(team.merged?.merchSlugs).toEqual(["footwear_sandals_slides"]);
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it("runs Gemini and OpenRouter in parallel when both keys are set", async () => {
+    process.env.GEMINI_API_KEY = "g";
+    process.env.OPENROUTER_API_KEY = "o";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string | Request) => {
+        const u = String(url);
+        if (u.includes("generativelanguage.googleapis.com")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      {
+                        text: JSON.stringify({
+                          gender: "men",
+                          apparel_only: false,
+                          expanded_keywords: "sandals",
+                          merch_slugs: ["footwear_sandals_slides"],
+                          colors: [],
+                          negated_terms: [],
+                        }),
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+          });
+        }
+        if (u.includes("openrouter.ai")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      gender: null,
+                      apparel_only: false,
+                      expanded_keywords: "flip flops",
+                      merch_slugs: ["footwear_sandals_slides"],
+                      colors: ["black"],
+                      negated_terms: [],
+                    }),
+                  },
+                },
+              ],
+            }),
+          });
+        }
+        return Promise.resolve({ ok: false, json: async () => ({}) });
+      }),
+    );
+
+    const team = await fetchLlmSearchAugmentTeam("men summer shoes");
+    expect(team.parallel).toBe(true);
+    expect(team.memberCount).toBeGreaterThanOrEqual(1);
+    expect(team.merged?.gender).toBe("men");
+    expect(team.merged?.extraColors).toContain("black");
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it("uses sequential fallback when SHOWCASE_LLM_PARALLEL=false", async () => {
+    process.env.GEMINI_API_KEY = "bad";
+    process.env.OPENROUTER_API_KEY = "or-key";
+    process.env.SHOWCASE_LLM_PARALLEL = "false";
     vi.stubGlobal(
       "fetch",
       vi
@@ -105,8 +237,9 @@ describe("fetchLlmSearchAugment (mocked fetch)", () => {
         }),
     );
 
-    const aug = await fetchLlmSearchAugment("summer open shoes");
-    expect(aug?.merchSlugs).toEqual(["footwear_sandals_slides"]);
+    const team = await fetchLlmSearchAugmentTeam("summer open shoes");
+    expect(team.parallel).toBe(false);
+    expect(team.merged?.merchSlugs).toEqual(["footwear_sandals_slides"]);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
