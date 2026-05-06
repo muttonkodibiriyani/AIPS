@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import { CatalogUploadPanel } from "@/components/catalog-upload-panel";
 import { Hero } from "@/components/hero";
 import { NLSearchDemo } from "@/components/nl-search-demo";
 import { FeatureCard } from "@/components/feature-card";
@@ -89,6 +90,23 @@ export default function Page() {
           </div>
 
           <NLSearchDemo />
+
+          <div className="mt-14">
+            <div className="mb-8 text-center">
+              <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Database className="size-3.5" aria-hidden /> Ingestion
+              </span>
+              <h3 className="font-display mt-4 text-2xl tracking-tight text-white sm:text-3xl">
+                Upload full CSV — gzip in browser — background index
+              </h3>
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-slate-500">
+                Requires a running gateway + catalog-ingestion worker (Redis + Postgres + MinIO + OpenSearch). See{" "}
+                <code className="text-slate-400">DEPLOYMENT_SHOWCASE.md</code> §5 and{" "}
+                <code className="text-slate-400">scripts/catalog_upload_presigned.py</code> for CLI.
+              </p>
+            </div>
+            <CatalogUploadPanel />
+          </div>
         </div>
       </section>
 

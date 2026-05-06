@@ -116,6 +116,8 @@ Requires `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. Run **Deploy 
 
 Compress your catalog CSV as **gzip** (`.csv.gz`). Use the same **`tenantId`** everywhere (ingest + search).
 
+The showcase UI (**Ingestion** card on `/`) gzips CSV in-browser, calls **`/api/catalog-upload/*`** (server proxies admin routes with `COMMERCE_API_KEY`), **PUT**s to the presigned MinIO URL, then polls **`/api/catalog-upload/jobs/{jobId}`**. For **very large** files or if the browser **PUT** is blocked, use **`scripts/catalog_upload_presigned.py`** (stdlib) or the curl flow below. **MinIO CORS** must allow your site origin for browser **PUT** to `uploadUrl`.
+
 **1 Presign**
 
 ```bash
