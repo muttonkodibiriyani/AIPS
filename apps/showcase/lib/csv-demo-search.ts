@@ -27,6 +27,7 @@ export type DemoCatalogBuildMeta = {
   segmentUnderfilled?: boolean;
   rowsSeenInSegment?: number;
   merchOnlySlug?: string | null;
+  catalogSource?: "remote_url" | "local_path" | string;
 };
 
 export type DemoCatalogFile = {

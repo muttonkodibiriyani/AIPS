@@ -1,0 +1,34 @@
+# Triggers a fresh Vercel production build so prebuild can STREAM_CSV from SHOWCASE_CATALOG_URL
+# and regenerate ~200k demo SKUs (never stored in Git). Add repository secret VERCEL_DEPLOY_HOOK_URL
+# from Vercel → Project → Settings → Git → Deploy Hooks.
+
+name: Showcase — Vercel redeploy hook
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "apps/showcase/**"
+      - "scripts/generate-demo-catalog-from-csv.mjs"
+      - "apps/showcase/lib/merch-category.mjs"
+      - "apps/showcase/lib/csv-demo-search.ts"
+      - "apps/showcase/lib/price-constraints.ts"
+      - ".github/workflows/showcase-deploy-hook.yml"
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel Deploy Hook
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK_URL" ]; then
+            echo "VERCEL_DEPLOY_HOOK_URL not set — skip (set in repo Settings → Secrets)."
+            exit 0
+          fi
+          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL"
+          echo "Deploy hook OK"

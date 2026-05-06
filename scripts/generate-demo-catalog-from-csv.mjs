@@ -14,11 +14,22 @@
  *     in apps/showcase/lib/merch-category.mjs). Example: footwear_sandals_slides for “sandals-only” demo.
  *     Row budget: SHOWCASE_DEMO_ROW_LIMIT if set; else SHOWCASE_DEMO_MERCH_SOFT_CAP (default 200000);
  *     set SHOWCASE_DEMO_MERCH_UNLIMITED=1 to ingest every CSV row matching the slug (very large JSON possible).
+ *
+ * Remote CSV (no git commit of 200k demo JSON — regenerate on every build):
+ *   SHOWCASE_CATALOG_URL — HTTPS URL to CSV; downloaded to SHOWCASE_CATALOG_DOWNLOAD_PATH (default
+ *     apps/showcase/data/.catalog-fetched.csv), then demo-catalog.json is built. Point at latest export CDN/S3 blob.
+ *   SHOWCASE_CATALOG_FETCH_IF_MISSING_ONLY — 1 = skip re-download when cached file exists.
+ *   SHOWCASE_CATALOG_FETCH_AUTH — optional Authorization header (e.g. Bearer …).
+ *   SHOWCASE_CATALOG_FETCH_HEADERS — optional JSON merged into fetch headers.
+ *   SHOWCASE_CATALOG_FETCH_TIMEOUT_MS — default 7200000 (large exports).
  */
-import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync, createWriteStream } from "node:fs";
 import { createReadStream } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 
 import { parse } from "csv-parse";
 
@@ -39,6 +50,67 @@ const LARGE_CSV_BYTES = 20 * 1024 * 1024;
 const DEFAULT_CAP_FOR_LARGE_CSV = 200_000;
 /** Merch-only mode soft cap when `SHOWCASE_DEMO_ROW_LIMIT` is unset. */
 const DEFAULT_MERCH_SOFT_CAP = 200_000;
+
+const DEFAULT_FETCH_DEST = join(__root, "apps/showcase/data/.catalog-fetched.csv");
+
+function resolvedLocalCsvPath() {
+  if (process.env.SHOWCASE_CATALOG_CSV && String(process.env.SHOWCASE_CATALOG_CSV).trim()) {
+    const p = String(process.env.SHOWCASE_CATALOG_CSV).trim();
+    return isAbsolute(p) ? p : join(__root, p);
+  }
+  return DEFAULT_CSV;
+}
+
+/** Stream CSV to disk (multi‑hundred‑MB safe). */
+async function downloadCatalogFromUrl(urlStr, destPath) {
+  const tm = parseInt(String(process.env.SHOWCASE_CATALOG_FETCH_TIMEOUT_MS || "7200000"), 10);
+  const ms = Number.isFinite(tm) && tm > 0 ? tm : 7200000;
+
+  /** @type {Record<string, string>} */
+  const headers = {};
+  const auth = String(process.env.SHOWCASE_CATALOG_FETCH_AUTH ?? "").trim();
+  if (auth) headers.Authorization = auth;
+  const extra = String(process.env.SHOWCASE_CATALOG_FETCH_HEADERS ?? "").trim();
+  if (extra) {
+    try {
+      Object.assign(headers, JSON.parse(extra));
+    } catch {
+      console.warn("[demo-catalog] SHOWCASE_CATALOG_FETCH_HEADERS invalid JSON — ignored.");
+    }
+  }
+
+  console.warn("[demo-catalog] Streaming SHOWCASE_CATALOG_URL →", destPath);
+  const res = await fetch(urlStr, {
+    redirect: "follow",
+    headers,
+    signal: AbortSignal.timeout(ms),
+  });
+  if (!res.ok) throw new Error(`Catalog fetch HTTP ${res.status}`);
+  if (!res.body) throw new Error("Catalog fetch: empty body");
+  await pipeline(Readable.fromWeb(res.body), createWriteStream(destPath));
+}
+
+/**
+ * Prefer `SHOWCASE_CATALOG_URL` so each build can ingest the latest export without committing JSON to Git.
+ * @returns {Promise<string>}
+ */
+async function resolveEffectiveCatalogPath() {
+  const fetchUrl = String(process.env.SHOWCASE_CATALOG_URL ?? "").trim();
+  if (!fetchUrl) return resolvedLocalCsvPath();
+
+  const destRaw = String(process.env.SHOWCASE_CATALOG_DOWNLOAD_PATH ?? "").trim();
+  const dest = destRaw ? (isAbsolute(destRaw) ? destRaw : join(__root, destRaw)) : DEFAULT_FETCH_DEST;
+
+  const ifMissingOnly = ["1", "true", "yes"].includes(
+    String(process.env.SHOWCASE_CATALOG_FETCH_IF_MISSING_ONLY ?? "").toLowerCase(),
+  );
+
+  mkdirSync(dirname(dest), { recursive: true });
+  if (!ifMissingOnly || !existsSync(dest)) await downloadCatalogFromUrl(fetchUrl, dest);
+  else console.warn("[demo-catalog] Reusing cached file (SHOWCASE_CATALOG_FETCH_IF_MISSING_ONLY):", dest);
+
+  return dest;
+}
 
 function normalizeMerchSlug(s) {
   return String(s ?? "")
@@ -497,11 +569,18 @@ function interleaveBuckets(buckets, seatKeys) {
 }
 
 async function main() {
-  const csvPath = process.env.SHOWCASE_CATALOG_CSV
-    ? isAbsolute(process.env.SHOWCASE_CATALOG_CSV)
-      ? process.env.SHOWCASE_CATALOG_CSV
-      : join(__root, process.env.SHOWCASE_CATALOG_CSV)
-    : DEFAULT_CSV;
+  let csvPath = "";
+  try {
+    csvPath = await resolveEffectiveCatalogPath();
+  } catch (e) {
+    console.error("[demo-catalog] Remote/catalog resolution failed:", e);
+    csvPath = resolvedLocalCsvPath();
+    if (!existsSync(csvPath)) {
+      console.error("[demo-catalog] No local CSV fallback.");
+      process.exit(1);
+    }
+    console.warn("[demo-catalog] Using local CSV after fetch error:", csvPath);
+  }
 
   if (!existsSync(csvPath)) {
     if (existsSync(OUT_FILE)) {
@@ -562,6 +641,7 @@ async function main() {
       truncated: maxRows != null && products.length >= maxRows,
       segment,
       merchOnlySlug,
+      catalogSource: process.env.SHOWCASE_CATALOG_URL ? "remote_url" : "local_path",
       reservoirSampling: maxRows != null && !stratified,
       stratifiedCategoryMix: stratified,
       categorySeatPlan: stratified ? seats : null,
