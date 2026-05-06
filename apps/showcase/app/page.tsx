@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import { CatalogPrepPanel } from "@/components/catalog-prep-panel";
 import { Hero } from "@/components/hero";
 import { NLSearchDemo } from "@/components/nl-search-demo";
 import { FeatureCard } from "@/components/feature-card";
@@ -89,6 +90,25 @@ export default function Page() {
           </div>
 
           <NLSearchDemo />
+
+          <div className="mt-16 space-y-6" id="catalog-prep">
+            <div className="text-center">
+              <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-amber-200/95">
+                <Database className="size-3.5" aria-hidden /> Full catalogue on this site
+              </span>
+              <h3 className="font-display mt-3 text-2xl tracking-tight text-white sm:text-3xl">
+                Gzip here → host URL → Vercel pulls every SKU into the demo
+              </h3>
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-slate-500">
+                The row cap in <code className="text-slate-400">apps/showcase/vercel.json</code> defaults to{" "}
+                <code className="text-slate-400">200000</code>; set{" "}
+                <code className="text-slate-400">SHOWCASE_DEMO_ROW_LIMIT=0</code> in Vercel (overrides build env) to include
+                <em> all </em>parsed products. Very large builds need time and RAM — use the gateway path if the JSON bundle
+                exceeds platform limits.
+              </p>
+            </div>
+            <CatalogPrepPanel />
+          </div>
         </div>
       </section>
 

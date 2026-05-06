@@ -116,8 +116,8 @@ Requires `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. Run **Deploy 
 
 Compress your catalog CSV as **gzip** (`.csv.gz`). Use the same **`tenantId`** everywhere (ingest + search).
 
-**Browser prep (not on the storefront):** open **`tools/catalog-gzip-prep/index.html`** locally or host that folder as a static site — it reports read/gzip progress and downloads **`*.csv.gz`**. Then upload the blob to **GitHub Releases**, **R2/Blob/S3**, or any **HTTPS** host and set **`SHOWCASE_CATALOG_URL`** to its URL (**gzip is supported**: the showcase prebuild decompresses while streaming).  
-For **OpenSearch** indexing (full recall + gateway search), use **`scripts/catalog_upload_presigned.py`** or the curl flow below. The showcase **LLM** augments **per query**; it does not train on the whole catalog — search quality after ingest depends on **OpenSearch** (gateway) or **offline JSON** (CSV build).
+**Browser prep on the storefront:** the **“Full catalogue on this site”** card on **`/`** gzips CSV in-browser (progress bar) so you download **`*.csv.gz`**. Use that file with **`SHOWCASE_CATALOG_URL`** on Vercel. The same flow exists offline at **`tools/catalog-gzip-prep/index.html`**.  
+For **OpenSearch** indexing (full recall + gateway search), use **`scripts/catalog_upload_presigned.py`** or the curl flow below. The showcase **LLM** augments **per query** over whatever catalog is bundled or indexed — it does not batch-train on all SKUs.
 
 **1 Presign**
 
