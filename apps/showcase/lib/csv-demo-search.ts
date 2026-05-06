@@ -1,3 +1,5 @@
+import { parsePriceConstraints, productMatchesPriceConstraints } from "./price-constraints";
+
 export type ProductRecord = {
   product_id: string;
   sku: string;
@@ -86,9 +88,32 @@ const STOP = new Set(
       "bedroom",
       "living",
       "room",
+      "aed",
+      "sar",
+      "dhs",
+      "riyal",
+      "riyals",
+      "dirham",
+      "dirhams",
     ] satisfies string[]
   ).map((s) => s.toLowerCase()),
 );
+
+/** Remove price clauses so amounts / currency tokens do not distort token overlap against SKUs. */
+function stripPricePhrasesForTokenization(q: string): string {
+  let s = q;
+  const chunks: RegExp[] = [
+    /\b(?:under|below|less\s+than|max|maximum|up\s+to|at\s+most|not\s+more\s+than|<)\s+[\d.,]+\s*(?:aed|sar|د\.إ|ر\.س)?\b/giu,
+    /\b(?:above|over|more\s+than|at\s+least|minimum|min\.?|from)\s+[\d.,]+\s*(?:aed|sar|د\.إ|ر\.س)?\b/giu,
+    /\b(?:worth|around|about|budget)\s+[\d.,]+\s*(?:aed|sar)?\s*(?:and\s+)?above\b/giu,
+    /\b[\d.,]+\s*(?:aed|sar|د\.إ|ر\.س)\s+(?:and\s+)?above\b/giu,
+    /\b[\d.,]+\s*(?:aed|sar)\s*\+/giu,
+    /\b[\d.,]+\s*\+\s*(?:aed|sar)\b/giu,
+    /\b(?:between|from)\s+[\d.,]+\s*(?:aed|sar|د\.إ|ر\.س)?\s+(?:and|to|-|–|—)\s*[\d.,]+\s*(?:aed|sar)?\b/giu,
+  ];
+  for (const re of chunks) s = s.replace(re, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
 
 /** Common merchant typos → normalized forms for tokenization. */
 function fixRetailSearchTypos(q: string): string {
@@ -183,21 +208,6 @@ function queryTokens(raw: string): string[] {
     }
   }
   return out.slice(0, 36);
-}
-
-function priceMax(pricing: Record<string, number> | undefined): number {
-  if (!pricing) return Infinity;
-  const vals = Object.values(pricing).filter((n) => typeof n === "number" && Number.isFinite(n));
-  if (vals.length === 0) return Infinity;
-  return Math.max(...vals);
-}
-
-/** Extract "under/below N (SAR|AED|…)" from natural language. */
-function extractPriceCap(query: string): number | null {
-  const m = query.match(/\b(?:under|below|less than|<)\s*([\d.,]+)\s*(aed|sar|د\.إ|ر\.س)?/i);
-  if (!m) return null;
-  const n = parseFloat(m[1].replace(/,/g, ""));
-  return Number.isFinite(n) ? n : null;
 }
 
 function customerGroupTokens(raw: string): string[] {
@@ -382,18 +392,24 @@ export function searchCsvDemoCatalog(
   const from = pagination.from ?? 0;
   const size = Math.min(pagination.size ?? 24, 100);
   const queryFixed = fixRetailSearchTypos(query.trim());
-  const cap = extractPriceCap(queryFixed);
+  const priceConstraints = parsePriceConstraints(queryFixed);
   const colorWant = colorHint(queryFixed);
   const genderWant = genderIntent(queryFixed);
-  const phrase = normalizeQueryPhrase(queryFixed);
-  const qtok = queryTokens(queryFixed);
+  const tokenSource = stripPricePhrasesForTokenization(queryFixed);
+  const phrase = normalizeQueryPhrase(tokenSource);
+  const qtok = queryTokens(tokenSource);
   const deprioritizeTees = wantsStructuredShirtsNotTees(phrase);
   const retrievalHints = retrievalCategoryHintsFromQuery(phrase, queryFixed.toLowerCase());
 
   let filtered = [...items];
 
-  if (cap != null) {
-    filtered = filtered.filter((p) => priceMax(p.pricing) <= cap);
+  const hasNumericPriceFilter =
+    priceConstraints.cap != null ||
+    priceConstraints.floor != null ||
+    (priceConstraints.rangeMin != null && priceConstraints.rangeMax != null);
+
+  if (hasNumericPriceFilter) {
+    filtered = filtered.filter((p) => productMatchesPriceConstraints(p, priceConstraints));
   }
 
   if (genderWant) {
@@ -451,7 +467,13 @@ export function searchCsvDemoCatalog(
     appliedFilters: {
       source: "csv_catalog",
       tenantId,
-      priceCap: cap,
+      priceConstraints: {
+        cap: priceConstraints.cap,
+        floor: priceConstraints.floor,
+        rangeMin: priceConstraints.rangeMin,
+        rangeMax: priceConstraints.rangeMax,
+        currency: priceConstraints.currency,
+      },
       genderIntent: genderWant,
       colorHint: colorWant,
       deprioritizeTees,

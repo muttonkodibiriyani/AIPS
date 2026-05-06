@@ -25,7 +25,7 @@ const OUT_DIR = join(__root, "apps/showcase/lib");
 const OUT_FILE = join(OUT_DIR, "demo-catalog.json");
 
 const LARGE_CSV_BYTES = 20 * 1024 * 1024;
-const DEFAULT_CAP_FOR_LARGE_CSV = 25_000;
+const DEFAULT_CAP_FOR_LARGE_CSV = 40_000;
 
 const HEADER_ALIASES = /** @type {Record<string, string>} */ ({
   id: "product_id",
@@ -243,7 +243,7 @@ function shuffleInPlace(arr) {
 function resolveSegment(maxRows) {
   const raw = (process.env.SHOWCASE_DEMO_SEGMENT ?? "").trim().toLowerCase();
   if (raw === "any" || raw === "men" || raw === "women" || raw === "kids") return raw;
-  if (maxRows != null) return "men";
+  if (maxRows != null) return "any";
   return "any";
 }
 

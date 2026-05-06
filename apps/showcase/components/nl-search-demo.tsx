@@ -42,6 +42,22 @@ function pickTitle(p: ProductHit): string {
   return typeof p.sku === "string" ? p.sku : "Product";
 }
 
+/** Corridor-aligned shelf price from demo catalog `pricing` map (never relevance `_score`). */
+function formatProductPrice(p: ProductHit, market: string): string | null {
+  const pr = p.pricing;
+  if (!pr || typeof pr !== "object") return null;
+  const aed = typeof pr.aed === "number" && Number.isFinite(pr.aed) ? pr.aed : null;
+  const sar = typeof pr.sar === "number" && Number.isFinite(pr.sar) ? pr.sar : null;
+  if (market === "SA") {
+    if (sar != null) return `${sar.toFixed(2)} SAR`;
+    if (aed != null) return `${aed.toFixed(2)} AED`;
+  } else {
+    if (aed != null) return `${aed.toFixed(2)} AED`;
+    if (sar != null) return `${sar.toFixed(2)} SAR`;
+  }
+  return null;
+}
+
 export function NLSearchDemo() {
   const [query, setQuery] = useState(NL_EXAMPLES[0].full);
   const [tenant, setTenant] = useState("demo-sl");
@@ -300,6 +316,7 @@ export function NLSearchDemo() {
               const src = raw ? imgUrl(raw) : null;
               const pid = String(p.product_id ?? p.sku ?? idx);
               const href = `/product/${encodeURIComponent(pid)}`;
+              const priceLabel = formatProductPrice(p, market);
               return (
                 <li key={`${pid}-${idx}`} className="list-none">
                   <Link
@@ -333,9 +350,11 @@ export function NLSearchDemo() {
                       <span className={p.availability !== false ? "text-emerald-300" : "text-rose-400"}>
                         {p.availability !== false ? "Stock · available" : "Stock · guarded"}
                       </span>
-                      {typeof p._score === "number" ? (
-                        <span className="font-mono text-[10px] opacity-70">{p._score.toFixed(2)}</span>
-                      ) : null}
+                      {priceLabel ? (
+                        <span className="font-mono text-[11.5px] text-teal-100/90">{priceLabel}</span>
+                      ) : (
+                        <span className="font-mono text-[10px] opacity-50">—</span>
+                      )}
                     </div>
                   </div>
                   </Link>

@@ -36,5 +36,8 @@ jobs:
       - name: Install deps (npm workspaces — same as Vercel)
         run: npm install
 
+      - name: Test showcase
+        run: npm run test -w @commerce-ai/showcase
+
       - name: Build showcase
         run: npm run build -w @commerce-ai/showcase
