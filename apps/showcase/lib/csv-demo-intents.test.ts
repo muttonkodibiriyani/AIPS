@@ -106,6 +106,57 @@ describe("intent: price floor + AED", () => {
   });
 });
 
+describe("intent: winter men clothing + colours (no belts / blackout curtains)", () => {
+  const cat: DemoCatalogFile = {
+    products: [
+      P({
+        product_id: "belt",
+        sku: "BLT-1",
+        title: { en: "M-buckle leather belt", ar: "" },
+        attrs: { customer_group: ",Man,", retrieval_category: "bags_accessories", color: "Black" },
+        search_text: "m buckle leather belt black man formal",
+      }),
+      P({
+        product_id: "curtain",
+        sku: "CUR-1",
+        title: { en: "2-pack blackout curtains", ar: "" },
+        attrs: { retrieval_category: "home_living", color: "Navy" },
+        search_text: "2 pack blackout curtains navy room darkening thermal",
+      }),
+      P({
+        product_id: "coat",
+        sku: "PK-1",
+        title: { en: "Padded winter parka", ar: "" },
+        attrs: { customer_group: ",Man,", retrieval_category: "outerwear", color: "Dark Blue/Black" },
+        search_text:
+          "padded parka winter jacket men warm fleece lined cold weather snow thermal insulation dark blue black",
+      }),
+      P({
+        product_id: "candle",
+        sku: "CAN-1",
+        title: { en: "Scented candle in glass", ar: "" },
+        attrs: { retrieval_category: "home_living", color: "Black" },
+        search_text: "scented candle black glass holder home living",
+      }),
+    ],
+  };
+
+  it('NL: "winter wear for men clothing i need blue and black" prefers outerwear, excludes home + accessories', () => {
+    const r = searchCsvDemoCatalog(
+      cat,
+      "winter wear for men clothing i need blue and black",
+      "demo",
+      { from: 0, size: 10 },
+    );
+    const ids = r.products.map((p) => p.product_id);
+    expect(ids).toContain("coat");
+    expect(ids).not.toContain("belt");
+    expect(ids).not.toContain("curtain");
+    expect(ids).not.toContain("candle");
+    expect(r.products[0]?.product_id).toBe("coat");
+  });
+});
+
 describe("intent: women sneakers + lexical", () => {
   const cat: DemoCatalogFile = {
     products: [
@@ -154,6 +205,7 @@ describe("SAMPLE_QUERIES (copy into manual QA with a real merch-only sandals bui
       "women pink sneakers summer breathable",
       "boys shorts blue size 8",
       "organic cotton duvet ivory queen under 350 AED",
+      "winter wear for men clothing blue and black",
     ];
     expect(samples.length).toBeGreaterThanOrEqual(6);
   });

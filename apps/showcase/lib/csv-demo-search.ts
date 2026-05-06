@@ -177,6 +177,10 @@ export function retrievalCategoryHintsFromQuery(phrase: string, rawLower: string
   ) {
     s.add("home_living");
   }
+  if (/\bwinter\b|\bwarm\b\s*(?:coat|layers?|gear|tops?|clothes)|\bfleece\b|\bthermal\b|\bpuffer\b|\bdown\s+(?:coat|jacket|puffer)|\bski\b/u.test(q)) {
+    s.add("outerwear");
+    s.add("knitwear");
+  }
   if (/\b(?:jeans|denim)\b/u.test(q)) s.add("bottoms_jeans");
   if (/\bshorts\b|\bbermuda\b/u.test(q)) s.add("bottoms_shorts");
   if (/\b(?:trousers|pants?|chinos?|joggers?|sweatpants?)\b|\bcargo\s+pants\b/u.test(q)) s.add("bottoms_trousers");
@@ -190,8 +194,59 @@ export function retrievalCategoryHintsFromQuery(phrase: string, rawLower: string
     s.add("bags_accessories");
   }
   if (/\b(?:socks|underwear|bras?)\b/u.test(q)) s.add("underwear_lounge_socks");
+
+  /** Generic layering / garments when copy says apparel but not jewellery/bags as product target */
+  if (/\b(?:clothes|clothing|apparel|menswear|womenswear|outfits?)\b/u.test(q) && !/\b(?:belt\b|wallet|handbag|cufflinks)\b/u.test(q)) {
+    s.add("tops_shirts_blouses");
+    s.add("outerwear");
+  }
   return s;
 }
+
+/** Apparel-heavy NL without asking for décor — suppress home / mis-token colour overlap (blackout curtains, etc.). */
+export function apparelDominantQuery(raw: string): boolean {
+  const ql = raw.trim().toLowerCase();
+  const explicitApparelWord = /\b(?:clothes|clothing|apparel|menswear|womenswear|outfits?|\bwinter\s+wear\b|\bsummer\s+wear\b)/u.test(
+    ql,
+  );
+  const seasonalWarm = /\bwinter\b|\bthermal\b|\bfleece\b|\bpuffer\b|\bdown\s+jacket\b/u.test(ql);
+  const winterOutfitCue = /\bwinter\b/u.test(ql) && /\b(?:wear|warm|cold|snow|coat|layering)\b/u.test(ql);
+  const garmentType =
+    /\b(?:coat|jacket|sweater|hoodie|cardigan|parka|gilet|pullover|trousers|jeans|chinos?)\b/u.test(ql);
+  const genderWithGarmentType =
+    /\b(?:men|women|mens|womens|\bman\b|\bwoman\b|kids?\b)/u.test(ql) && garmentType;
+
+  const homeCue = /\b(?:vase|cushion|duvet|blackout|curtain|candle\b|stoneware|homeware|bed\s*linen)\b/u.test(ql);
+  const asksAccessorySKU =
+    /\b(?:belt\b|wallet|crossbody|handbag|keyring|cufflinks|loafers|sandals\b|slides?\b)/u.test(ql);
+
+  return (
+    (explicitApparelWord || seasonalWarm || winterOutfitCue || genderWithGarmentType) &&
+    !homeCue &&
+    !asksAccessorySKU
+  );
+}
+
+/** True when shopper names clothing / layered winter — restrict grid to SOFT_APPAREL buckets (drops belts / curtains noise). */
+function strictSoftApparelFilter(raw: string): boolean {
+  return /\b(?:clothes|clothing|apparel)\b|\bwinter\s+wear\b/u.test(raw.trim().toLowerCase());
+}
+
+const SOFT_APPAREL_SLUG = new Set([
+  "tops_tees",
+  "tops_shirts_blouses",
+  "knitwear",
+  "outerwear",
+  "bottoms_jeans",
+  "bottoms_shorts",
+  "bottoms_trousers",
+  "dresses_skirts",
+  "activewear",
+  "underwear_lounge_socks",
+  "footwear_sandals_slides",
+  "footwear_sneakers",
+  "footwear_boots_other",
+]);
 
 /** Meaningful lexical tokens — drops stopwords and 1-letter noise; keeps Arabic/Unicode words. */
 function queryTokens(raw: string): string[] {
@@ -276,36 +331,48 @@ export function productMatchesGenderSegment(attrs: Record<string, string> | unde
   return onlyChildTokens || t.some((x) => /^(BABY|CHILD|KID|KIDS|JUNIOR|TODDLER|INFANT)$/u.test(x));
 }
 
-function colorHint(query: string): string | null {
-  const colors = [
-    "white",
-    "black",
-    "blue",
-    "red",
-    "green",
-    "ivory",
-    "brown",
-    "grey",
-    "gray",
-    "beige",
-    "indigo",
-    "pink",
-    "gold",
-    "silver",
-    "cream",
-    "navy",
-    "purple",
-    "yellow",
-    "orange",
-    "teal",
-  ];
-  const q = query.toLowerCase();
-  let best: string | null = null;
-  for (const c of colors) {
-    if (!q.includes(c)) continue;
-    if (!best || c.length > best.length) best = c;
+const COLOR_ORDER = [
+  "ivory",
+  "indigo",
+  "silver",
+  "yellow",
+  "orange",
+  "purple",
+  "cream",
+  "beige",
+  "brown",
+  "green",
+  "white",
+  "black",
+  "navy",
+  "blue",
+  "teal",
+  "pink",
+  "red",
+  "gold",
+  "grey",
+  "gray",
+] as const;
+
+/** Word-boundary match so `"black"` does not match blackout / blueberry false positives */
+function blobMatchesColor(blob: string, color: string): boolean {
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}_])(${color.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})([^\\p{L}\\p{N}_]|$)`, "iu");
+  return re.test(blob);
+}
+
+/** All catalogue colours cited in NL (e.g. blue + black); word-boundaries on the query kill false stems. */
+export function colorHints(query: string): string[] {
+  const q = normalizeQueryPhrase(query);
+  const hits: string[] = [];
+  for (const c of COLOR_ORDER) {
+    if (!blobMatchesColor(q, c)) continue;
+    if (!hits.includes(c)) hits.push(c);
   }
-  return best;
+  return hits.slice(0, 6);
+}
+
+function productColorBlob(p: ProductRecord): string {
+  return normalizeQueryPhrase(`${p.attrs?.color ?? ""} ${p.title.en} ${p.title.ar} ${p.search_text}`);
 }
 
 function skuTokenNorm(sku: string): string {
@@ -329,7 +396,7 @@ function scoreDoc(
   p: ProductRecord,
   phrase: string,
   qtok: string[],
-  colorWant: string | null,
+  colorHintsList: string[],
   deprioritizeTees: boolean,
   retrievalHints: Set<string>,
   genderWant: "men" | "women" | "kids" | null,
@@ -373,10 +440,14 @@ function scoreDoc(
     }
   }
 
-  if (colorWant) {
-    const colorField = (p.attrs?.color || "").toLowerCase();
-    if (colorField.includes(colorWant)) score += 14;
-    else if (hay.includes(colorWant)) score += 6;
+  if (colorHintsList.length > 0) {
+    const pcb = productColorBlob(p);
+    let colorHits = 0;
+    for (const cw of colorHintsList) {
+      if (blobMatchesColor(pcb, cw)) colorHits++;
+    }
+    if (colorHits > 0) score += 12 + colorHits * 16;
+    if (/\b(and|both)\b/u.test(queryLower) && colorHintsList.length >= 2 && colorHits < 2) score *= 0.55;
   }
 
   if (deprioritizeTees) {
@@ -393,14 +464,18 @@ function scoreDoc(
 
   if (retrievalHints.size > 0 && retrievalCat) {
     if (retrievalHints.has(retrievalCat)) {
-      score += 38;
-    } else if (retrievalHints.size <= 2 && !/^other$/u.test(retrievalCat)) {
-      score *= 0.65;
+      score += 44;
+    } else if (!/^other$/u.test(retrievalCat)) {
+      score *= 0.28;
     }
   }
 
   if (genderWant) {
     score *= genderLexicalFactor(p.attrs, genderWant);
+  }
+
+  if (/\bwinter\b/u.test(queryLower) && /\b(winter|wool|fleece|thermal|cold|snow|warm|knit(?:ted)?|heavyweight)\b/u.test(`${titleEn} ${hay}`)) {
+    score += 26;
   }
 
   if (/\bsummer\b/u.test(queryLower) && /\b(summer|breathable|lightweight|beach|holiday|linen|straw|pool)\b/u.test(hay)) {
@@ -430,13 +505,16 @@ export function searchCsvDemoCatalog(
   const size = Math.min(pagination.size ?? 24, 100);
   const queryFixed = fixRetailSearchTypos(query.trim());
   const priceConstraints = parsePriceConstraints(queryFixed);
-  const colorWant = colorHint(queryFixed);
+  const qlRaw = queryFixed.toLowerCase();
+  const colorHintsList = colorHints(queryFixed);
   const genderWant = genderIntent(queryFixed);
   const tokenSource = stripPricePhrasesForTokenization(queryFixed);
   const phrase = normalizeQueryPhrase(tokenSource);
   const qtok = queryTokens(tokenSource);
   const deprioritizeTees = wantsStructuredShirtsNotTees(phrase);
-  const retrievalHints = retrievalCategoryHintsFromQuery(phrase, queryFixed.toLowerCase());
+  const retrievalHints = retrievalCategoryHintsFromQuery(phrase, qlRaw);
+  const apparelStrict = strictSoftApparelFilter(queryFixed);
+  const apparelLoose = apparelDominantQuery(queryFixed);
 
   let filtered = [...items];
 
@@ -456,20 +534,22 @@ export function searchCsvDemoCatalog(
     }
   }
 
-  if (colorWant) {
-    filtered = filtered.filter((p) => {
-      const c = p.attrs?.color?.toLowerCase() ?? "";
-      const blob = `${c} ${p.search_text}`;
-      return blob.includes(colorWant);
-    });
+  if (apparelStrict) {
+    filtered = filtered.filter((p) => SOFT_APPAREL_SLUG.has(p.attrs?.retrieval_category ?? "other"));
+  } else if (apparelLoose) {
+    filtered = filtered.filter((p) => (p.attrs?.retrieval_category ?? "") !== "home_living");
   }
 
-  const ql = queryFixed.toLowerCase();
+  if (colorHintsList.length > 0) {
+    filtered = filtered.filter((p) => colorHintsList.some((cw) => blobMatchesColor(productColorBlob(p), cw)));
+  }
+
+  const ql = qlRaw;
   const scored =
     qtok.length === 0 && phrase.length < 2
       ? filtered.map((p) => ({ ...p, _score: 1 }))
       : filtered.map((p) => {
-          const s = scoreDoc(p, phrase, qtok, colorWant, deprioritizeTees, retrievalHints, genderWant, ql);
+          const s = scoreDoc(p, phrase, qtok, colorHintsList, deprioritizeTees, retrievalHints, genderWant, ql);
           return { ...p, _score: s };
         });
 
@@ -517,7 +597,9 @@ export function searchCsvDemoCatalog(
         currency: priceConstraints.currency,
       },
       genderIntent: genderWant,
-      colorHint: colorWant,
+      colorHints: colorHintsList,
+      apparelDominantHardFilter: apparelStrict,
+      apparelDominantExcludeHomeOnly: apparelLoose && !apparelStrict,
       deprioritizeTees,
       retrievalCategoryHints: [...retrievalHints],
       queryTokens: qtok.slice(0, 12),
