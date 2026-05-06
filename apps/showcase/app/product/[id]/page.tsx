@@ -100,6 +100,12 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
                   <dd>{p.attrs.color}</dd>
                 </div>
               ) : null}
+              {p.attrs?.size ? (
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-slate-500">Size</dt>
+                  <dd>{p.attrs.size}</dd>
+                </div>
+              ) : null}
               {priceBits.length ? (
                 <div className="flex flex-wrap gap-x-2">
                   <dt className="text-slate-500">Price</dt>

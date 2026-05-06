@@ -16,6 +16,7 @@ type ProductHit = Record<string, unknown> & {
   market?: string;
   pricing?: Record<string, number>;
   availability?: boolean;
+  attrs?: Record<string, string>;
   _score?: number;
 };
 
@@ -317,6 +318,10 @@ export function NLSearchDemo() {
               const pid = String(p.product_id ?? p.sku ?? idx);
               const href = `/product/${encodeURIComponent(pid)}`;
               const priceLabel = formatProductPrice(p, market);
+              const sizeLabel =
+                p.attrs && typeof p.attrs.size === "string" && p.attrs.size.trim()
+                  ? p.attrs.size.trim()
+                  : null;
               return (
                 <li key={`${pid}-${idx}`} className="list-none">
                   <Link
@@ -344,6 +349,7 @@ export function NLSearchDemo() {
                       <p className="line-clamp-2 text-[0.9275rem] font-medium leading-snug text-slate-100">{pickTitle(p)}</p>
                       <p className="mt-1 font-mono text-[11px] text-slate-500">
                         SKU {String(p.sku ?? p.product_id ?? "—")} · {String(p.market ?? "—")}
+                        {sizeLabel ? <span className="text-slate-600"> · Size {sizeLabel}</span> : null}
                       </p>
                     </div>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">

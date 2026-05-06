@@ -26,6 +26,7 @@ export type DemoCatalogBuildMeta = {
   categorySeatPlan?: Record<string, number> | null;
   segmentUnderfilled?: boolean;
   rowsSeenInSegment?: number;
+  merchOnlySlug?: string | null;
 };
 
 export type DemoCatalogFile = {
@@ -217,13 +218,38 @@ function customerGroupTokens(raw: string): string[] {
     .filter(Boolean);
 }
 
-/** NL cues like “men sandals” → constrain by CSV customer_group when present. */
-function genderIntent(query: string): "men" | "women" | "kids" | null {
+/**
+ * NL cues like “men sandals” → constrain by CSV customer_group when present.
+ * Note: `men'?s` matches men's/mens but **not** bare “men” — include `\bmen\b`.
+ */
+export function genderIntent(query: string): "men" | "women" | "kids" | null {
   const q = query.toLowerCase();
-  if (/\b(women'?s|womens|ladies|lady|for women|womenwear)\b|\bwoman\b|\bfemale\b/.test(q)) return "women";
+  if (/\b(women'?s|womens|\bwomen\b|ladies|lady|for women|womenwear)\b|\bwoman\b|\bfemale\b/.test(q)) return "women";
   if (/\b(boys?|girls?|kids?|children|child|bab(y|ies)|toddlers?|junior)\b/.test(q)) return "kids";
-  if (/\b(men'?s|mens|menswear|for men)\b|\bman\b|\bmale\b/.test(q)) return "men";
+  if (
+    /\b(men'?s|mens|menswear|for men)\b/.test(q) ||
+    /\bmen\b/.test(q) ||
+    /\bman\b/.test(q) ||
+    /\bmale\b/.test(q)
+  ) {
+    return "men";
+  }
   return null;
+}
+
+/** When shopper names a gender, up-rank SKUs whose customer_group matches; penalize empty / opposite corridor. */
+function genderLexicalFactor(attrs: Record<string, string> | undefined, intent: "men" | "women" | "kids"): number {
+  const raw = attrs?.customer_group ?? "";
+  const t = customerGroupTokens(raw);
+  if (t.length === 0) return 0.86;
+
+  if (productMatchesGenderSegment(attrs, intent)) return 1.52;
+
+  const hasMan = t.some((x) => x === "MAN" || x === "MEN" || x === "MENS" || x === "MEN'S");
+  const hasWoman = t.some((x) => x === "WOMAN" || x === "WOMEN" || x === "LADIES");
+  if (intent === "men" && hasWoman && !hasMan) return 0.025;
+  if (intent === "women" && hasMan && !hasWoman) return 0.025;
+  return 0.62;
 }
 
 /** Mirrors generate-demo-catalog segment rules for runtime filtering. */
@@ -305,6 +331,8 @@ function scoreDoc(
   colorWant: string | null,
   deprioritizeTees: boolean,
   retrievalHints: Set<string>,
+  genderWant: "men" | "women" | "kids" | null,
+  queryLower: string,
 ): number {
   const hay = p.search_text;
   const titleEn = p.title.en.toLowerCase();
@@ -370,6 +398,14 @@ function scoreDoc(
     }
   }
 
+  if (genderWant) {
+    score *= genderLexicalFactor(p.attrs, genderWant);
+  }
+
+  if (/\bsummer\b/u.test(queryLower) && /\b(summer|breathable|lightweight|beach|holiday|linen|straw|pool)\b/u.test(hay)) {
+    score += 12;
+  }
+
   return score;
 }
 
@@ -427,15 +463,20 @@ export function searchCsvDemoCatalog(
     });
   }
 
+  const ql = queryFixed.toLowerCase();
   const scored =
     qtok.length === 0 && phrase.length < 2
       ? filtered.map((p) => ({ ...p, _score: 1 }))
       : filtered.map((p) => {
-          const s = scoreDoc(p, phrase, qtok, colorWant, deprioritizeTees, retrievalHints);
+          const s = scoreDoc(p, phrase, qtok, colorWant, deprioritizeTees, retrievalHints, genderWant, ql);
           return { ...p, _score: s };
         });
 
-  scored.sort((a, b) => (b._score ?? 0) - (a._score ?? 0));
+  scored.sort((a, b) => {
+    const ds = (b._score ?? 0) - (a._score ?? 0);
+    if (ds !== 0) return ds;
+    return String(a.sku ?? "").localeCompare(String(b.sku ?? ""));
+  });
 
   let page = scored;
   if (qtok.length > 0 || phrase.length >= 2) {

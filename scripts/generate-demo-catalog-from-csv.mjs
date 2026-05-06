@@ -3,11 +3,17 @@
  *
  * Env:
  *   SHOWCASE_CATALOG_CSV — path to CSV (default: apps/showcase/data/catalog.csv).
- *   SHOWCASE_DEMO_ROW_LIMIT — max products; 0/unset with small file = all rows; large file auto cap 25k.
- *   SHOWCASE_DEMO_SEGMENT — any | men | women | kids (default: men when row cap applies, else any).
+ *   SHOWCASE_DEMO_ROW_LIMIT — max products; 0/unset with small file = all rows; large file auto cap.
+ *     For ~200k–300k+ variants keep the CSV local and set SHOWCASE_DEMO_ROW_LIMIT (expect a large JSON + build time);
+ *     production search should use the gateway + OpenSearch for full-catalog recall.
+ *   SHOWCASE_DEMO_SEGMENT — any | men | women | kids (default: any).
  *     Uses H&M-style HNMDefault~customerGroup (Man/Woman/Boy/Girl / combos).
  *   SHOWCASE_DEMO_STRATIFY — true | false (default true when row cap applies). Targets a balanced merch mix
  *     (home, footwear, tops, bottoms, …) instead of one random slice of rows.
+ *   SHOWCASE_DEMO_MERCH_ONLY — slug: keep rows in that merchandising bucket only (see CATEGORY_TARGET_FRACTIONS keys
+ *     in apps/showcase/lib/merch-category.mjs). Example: footwear_sandals_slides for “sandals-only” demo.
+ *     Row budget: SHOWCASE_DEMO_ROW_LIMIT if set; else SHOWCASE_DEMO_MERCH_SOFT_CAP (default 300000);
+ *     set SHOWCASE_DEMO_MERCH_UNLIMITED=1 to ingest every CSV row matching the slug (very large JSON possible).
  */
 import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { createReadStream } from "node:fs";
@@ -16,7 +22,11 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "csv-parse";
 
-import { computeCategoryTargets, inferMerchCategorySlug } from "../apps/showcase/lib/merch-category.mjs";
+import {
+  CATEGORY_TARGET_FRACTIONS,
+  computeCategoryTargets,
+  inferMerchCategorySlug,
+} from "../apps/showcase/lib/merch-category.mjs";
 
 const __root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -25,7 +35,28 @@ const OUT_DIR = join(__root, "apps/showcase/lib");
 const OUT_FILE = join(OUT_DIR, "demo-catalog.json");
 
 const LARGE_CSV_BYTES = 20 * 1024 * 1024;
-const DEFAULT_CAP_FOR_LARGE_CSV = 40_000;
+const DEFAULT_CAP_FOR_LARGE_CSV = 72_000;
+/** When SHOWCASE_DEMO_MERCH_ONLY is set and ROW_LIMIT omitted, reservoir up to this many SKUs before MERCH_UNLIMITED. */
+const DEFAULT_MERCH_SOFT_CAP = 300_000;
+
+function normalizeMerchSlug(s) {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+}
+
+function resolveMerchOnlySlug() {
+  const v = normalizeMerchSlug(process.env.SHOWCASE_DEMO_MERCH_ONLY);
+  if (!v) return null;
+  const keys = Object.keys(CATEGORY_TARGET_FRACTIONS);
+  if (!keys.includes(v)) {
+    console.warn(
+      `[demo-catalog] SHOWCASE_DEMO_MERCH_ONLY="${process.env.SHOWCASE_DEMO_MERCH_ONLY}" is not one of (${keys.join(", ")}); still filtering by inferred slug.`,
+    );
+  }
+  return v;
+}
 
 const HEADER_ALIASES = /** @type {Record<string, string>} */ ({
   id: "product_id",
@@ -247,13 +278,28 @@ function resolveSegment(maxRows) {
   return "any";
 }
 
-/** @param {string | undefined} raw */
-function resolveRowLimit(csvPath, bytes) {
+/** @param {number} bytes */
+function resolveRowLimit(bytes, merchOnlySlug) {
   const raw = process.env.SHOWCASE_DEMO_ROW_LIMIT;
   if (raw !== undefined && raw !== "") {
     const n = parseInt(String(raw), 10);
     if (!Number.isFinite(n) || n <= 0) return null;
     return n;
+  }
+  if (merchOnlySlug) {
+    const unlimited = ["1", "true", "yes"].includes(
+      (process.env.SHOWCASE_DEMO_MERCH_UNLIMITED ?? "").trim().toLowerCase(),
+    );
+    if (unlimited) {
+      console.warn("[demo-catalog] SHOWCASE_DEMO_MERCH_UNLIMITED: emitting every SKU in category (heavy).");
+      return null;
+    }
+    const soft = parseInt(String(process.env.SHOWCASE_DEMO_MERCH_SOFT_CAP ?? DEFAULT_MERCH_SOFT_CAP), 10);
+    const cap = Number.isFinite(soft) && soft > 0 ? soft : DEFAULT_MERCH_SOFT_CAP;
+    console.warn(
+      `[demo-catalog] Merch-only cap ${cap.toLocaleString()} SKUs — set SHOWCASE_DEMO_ROW_LIMIT or SHOWCASE_DEMO_MERCH_UNLIMITED=1 to override.`,
+    );
+    return cap;
   }
   if (bytes > LARGE_CSV_BYTES) return DEFAULT_CAP_FOR_LARGE_CSV;
   return null;
@@ -261,15 +307,69 @@ function resolveRowLimit(csvPath, bytes) {
 
 /**
  * @param {string} csvPath
- * @param {number | null} maxRows — null = unlimited
+ * @param {number | null} maxRows — null = unlimited (no reservoir bound)
  * @param {string} segment
+ * @param {string | null} merchOnlySlug
  */
-async function streamCsvToProducts(csvPath, maxRows, segment) {
+async function streamCsvToProducts(csvPath, maxRows, segment, merchOnlySlug) {
+  if (merchOnlySlug) {
+    return streamCsvMerchCategoryOnly(csvPath, maxRows, segment, merchOnlySlug);
+  }
   const stratify = useStratifiedSampling(maxRows);
   if (!stratify) {
     return streamCsvUniformReservoir(csvPath, maxRows, segment);
   }
   return streamCsvStratifiedReservoir(csvPath, /** @type {number} */ (maxRows), segment);
+}
+
+/** @param {string} csvPath @param {number | null} maxRows @param {string} segment @param {string} targetSlug */
+async function streamCsvMerchCategoryOnly(csvPath, maxRows, segment, targetSlug) {
+  const parser = createReadStream(csvPath).pipe(
+    parse({
+      columns: true,
+      skip_empty_lines: true,
+      relax_quotes: true,
+      trim: true,
+    }),
+  );
+
+  /** @type {unknown[]} */
+  const primary = [];
+  let seenInSlug = 0;
+  let seenSegmentRows = 0;
+
+  for await (const rawRow of parser) {
+    const aliased = aliasRow(/** @type {Record<string, string>} */ (rawRow));
+
+    let ok = segment === "any";
+    if (segment !== "any") ok = matchesSegment(aliased, segment);
+    if (!ok) continue;
+
+    seenSegmentRows++;
+    const nameEn = aliased.name_en || "";
+    const descSnip = (aliased.desc_en || "").slice(0, 520);
+    const inferred = inferMerchCategorySlug(nameEn, descSnip);
+    if (inferred !== targetSlug) continue;
+
+    const p = rowToProduct(aliased, targetSlug);
+    if (!p) continue;
+
+    seenInSlug++;
+    if (maxRows == null) {
+      primary.push(p);
+    } else {
+      reservoirAdd(primary, p, maxRows, seenInSlug);
+    }
+  }
+
+  const segmentUnderfilled = segment !== "any" && maxRows != null && primary.length < maxRows;
+  return {
+    products: primary,
+    segmentUnderfilled,
+    seenSegment: seenSegmentRows,
+    stratified: false,
+    seats: { [targetSlug]: primary.length },
+  };
 }
 
 /** @param {string} csvPath @param {number | null} maxRows @param {string} segment */
@@ -439,7 +539,8 @@ async function main() {
     bytes = 0;
   }
 
-  const maxRows = resolveRowLimit(csvPath, bytes);
+  const merchOnlySlug = resolveMerchOnlySlug();
+  const maxRows = resolveRowLimit(bytes, merchOnlySlug);
   const segment = resolveSegment(maxRows);
   const {
     products,
@@ -447,7 +548,7 @@ async function main() {
     seenSegment,
     stratified,
     seats,
-  } = await streamCsvToProducts(csvPath, maxRows, segment);
+  } = await streamCsvToProducts(csvPath, maxRows, segment, merchOnlySlug);
 
   mkdirSync(OUT_DIR, { recursive: true });
   const payload = {
@@ -459,13 +560,15 @@ async function main() {
       limitApplied: maxRows,
       truncated: maxRows != null && products.length >= maxRows,
       segment,
+      merchOnlySlug,
       reservoirSampling: maxRows != null && !stratified,
       stratifiedCategoryMix: stratified,
       categorySeatPlan: stratified ? seats : null,
       segmentUnderfilled,
       rowsSeenInSegment: seenSegment,
-      hint:
-        maxRows != null
+      hint: merchOnlySlug
+        ? `Merch-only ${merchOnlySlug}: ${products.length.toLocaleString()} SKUs (limit ${maxRows == null ? "none" : maxRows.toLocaleString()}). Full catalog: gateway + OpenSearch.`
+        : maxRows != null
           ? stratified
             ? `Capped demo (${segment}): stratified mix across apparel/home buckets (~${maxRows.toLocaleString()} SKUs). For full fidelity use ingest + COMMERCE_GATEWAY_URL + OpenSearch.`
             : `Capped demo (${segment}): single-stream reservoir (~${maxRows.toLocaleString()} SKUs). Set SHOWCASE_DEMO_STRATIFY=true for category-balanced demo. Full catalog search: ingest + gateway.`
@@ -474,10 +577,11 @@ async function main() {
   };
   writeFileSync(OUT_FILE, JSON.stringify(payload), "utf8");
   const stratLabel = stratified ? ", stratified" : "";
+  const merchLabel = merchOnlySlug ? `, merch=${merchOnlySlug}` : "";
   const u = segmentUnderfilled ? " — fewer than cap rows matched this segment." : "";
   console.log(
     `[demo-catalog] Wrote ${products.length.toLocaleString()} products → ${OUT_FILE}` +
-      (maxRows ? ` (cap ${maxRows.toLocaleString()}, segment=${segment}${stratLabel})` : ` (segment=${segment}, full read)`) +
+      (maxRows ? ` (cap ${maxRows.toLocaleString()}, segment=${segment}${merchLabel}${stratLabel})` : ` (segment=${segment}${merchLabel}, full read)`) +
       u,
   );
 }
