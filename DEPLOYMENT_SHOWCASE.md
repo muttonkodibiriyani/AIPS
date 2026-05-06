@@ -48,6 +48,18 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
 
    **Automated rebuild loop:** Create a Vercel [**Deploy Hook**](https://vercel.com/docs/deploy-hooks), add GitHub secret **`VERCEL_DEPLOY_HOOK_URL`**. Workflow [`.github/workflows/showcase-deploy-hook.yml`](./.github/workflows/showcase-deploy-hook.yml) POSTs to it on **push** (showcase paths), **every 6 hours**, and **workflow_dispatch** so new catalog exports can be picked up without code changes (as long as **`SHOWCASE_CATALOG_URL`** resolves to the updated file).
 
+   **Optional — offline NL intent (Gemini or OpenRouter merged into lexical CSV search):** When **`COMMERCE_GATEWAY_URL`** is unset and **`demo-catalog.json`** is present, **`POST /api/search`** can perform one LLM call per request for structured cues (colours, merch slugs, synonym tokens, negations, apparel-only, gender). That payload is merged into **`searchCsvDemoCatalog`** ([`csv-demo-search.ts`](./apps/showcase/lib/csv-demo-search.ts)). Timeouts or failures fall back to lexical search only.
+
+   | Key | Example | Notes |
+   |-----|---------|--------|
+   | **`GEMINI_API_KEY`** or **`GOOGLE_GENERATIVE_AI_API_KEY`** | *(Google AI Studio)* | Tried first; **`GEMINI_MODEL`** defaults to **`gemini-2.0-flash`**. Full [ADK](https://adk.dev/get-started/) agent hosting is optional — this app uses the Gemini REST API. |
+   | **`OPENROUTER_API_KEY`** | *(OpenRouter)* | Fallback; **`OPENROUTER_MODEL`** defaults to **`google/gemini-2.0-flash-001:free`** (pin a stable free/paid model in production). |
+   | **`OPENROUTER_HTTP_REFERRER`** | `https://your-showcase.vercel.app` | Optional `HTTP-Referer` header. |
+   | **`SHOWCASE_LLM_INTENT`** | omit or **`true`** | Set **`false`** to disable outbound LLM calls. |
+   | **`SHOWCASE_LLM_TIMEOUT_MS`** | **`10000`** | Per-request timeout (clamped **2000–25000** ms in code). |
+
+   **`GET /api/health`** returns **`llmIntentConfigured`**. Search JSON includes **`appliedFilters.llmAugmentSummary`** and **`interpretation.llmIntentAttempted`** / **`interpretation.llmIntentApplied`**.
+
    Click **Save** for each row, then **Deployments → … → Redeploy** — **environment variables apply only after a redeploy.**
 
    You do **not** need **Sensitive** for `SHOWCASE_DEMO_SEARCH=true` or `COMMERCE_GATEWAY_URL` (both are usually non‑secret demo flags); use Sensitive only if your team policy requires masking `COMMERCE_API_KEY`.
@@ -68,7 +80,7 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
 
 Validate from the deployed URL:
 
-- **`GET /api/health`** — `{ gatewayConfigured, demoSearchEnabled, liveSearchAvailable, gitCommit? }` (**`gitCommit`** is `VERCEL_GIT_COMMIT_SHA` on Vercel; compare to [`main` on GitHub](https://github.com/muttonkodibiriyani/AIPS/commits/main) if you suspected a stale redeploy).
+- **`GET /api/health`** — `{ gatewayConfigured, demoSearchEnabled, liveSearchAvailable, llmIntentConfigured, gitCommit? }` (**`gitCommit`** is `VERCEL_GIT_COMMIT_SHA` on Vercel; compare to [`main` on GitHub](https://github.com/muttonkodibiriyani/AIPS/commits/main) if you suspected a stale redeploy).
 
 
 Install uses **`npm`** + **`package.json` workspaces** (not `pnpm`) on Vercel. Workspaces list **`apps/*`**, **`packages/shared-types`**, **`packages/ui-components`**, and **`services/api-gateway`** only — **`packages/sdk-js`** / **`packages/sdk-react`** are excluded so install never parses stub-only `workspace:` links. Local **`pnpm install`** still installs **all** packages via [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).

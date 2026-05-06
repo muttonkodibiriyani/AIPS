@@ -10,6 +10,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const gw = process.env.COMMERCE_GATEWAY_URL?.trim() ?? "";
   const demo = process.env.SHOWCASE_DEMO_SEARCH === "true";
+  const llmIntentConfigured =
+    process.env.SHOWCASE_LLM_INTENT !== "false" &&
+    (Boolean((process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim()) ||
+      Boolean((process.env.OPENROUTER_API_KEY ?? "").trim()));
   const dc = demoCatalog as {
     products?: unknown[];
     buildMeta?: {
@@ -34,6 +38,7 @@ export async function GET() {
     csvCatalogRowCap,
     csvCatalogSegment,
     offlineSearchAvailable: csvCatalogRows > 0,
+    llmIntentConfigured,
     gitCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
   });
 }

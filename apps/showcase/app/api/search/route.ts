@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 
 import type { DemoCatalogFile } from "@/lib/csv-demo-search";
 import { searchCsvDemoCatalog } from "@/lib/csv-demo-search";
+import { fetchLlmSearchAugment } from "@/lib/llm-intent";
 import demoCatalog from "@/lib/demo-catalog.json";
 
 type ProductCard = Record<string, unknown>;
 
 const csvBundle = demoCatalog as DemoCatalogFile;
 
-function csvSearchResponse(body: Record<string, unknown>) {
+async function csvSearchResponse(body: Record<string, unknown>) {
   const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
   const query = typeof body.query === "string" ? body.query : "";
   const pagination =
@@ -16,7 +17,17 @@ function csvSearchResponse(body: Record<string, unknown>) {
       ? (body.pagination as { from?: number; size?: number })
       : {};
 
-  const r = searchCsvDemoCatalog(csvBundle, query, tenantId, pagination);
+  const llmAugment = await fetchLlmSearchAugment(query);
+
+  const r = searchCsvDemoCatalog(csvBundle, query, tenantId, pagination, {
+    llmAugment: llmAugment ?? undefined,
+  });
+
+  const llmEnabled =
+    process.env.SHOWCASE_LLM_INTENT !== "false" &&
+    (Boolean((process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim()) ||
+      Boolean((process.env.OPENROUTER_API_KEY ?? "").trim()));
+
   return NextResponse.json({
     products: r.products,
     facets: r.facets,
@@ -25,7 +36,12 @@ function csvSearchResponse(body: Record<string, unknown>) {
       ...r.appliedFilters,
       hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
     },
-    interpretation: { lexicalWeight: 1, semanticWeight: 0 },
+    interpretation: {
+      lexicalWeight: 1,
+      semanticWeight: 0,
+      llmIntentAttempted: llmEnabled,
+      llmIntentApplied: Boolean(llmAugment),
+    },
   });
 }
 
@@ -135,7 +151,7 @@ export async function POST(req: Request) {
 
   if (!base) {
     if (csvRows > 0) {
-      return csvSearchResponse(body);
+      return await csvSearchResponse(body);
     }
     if (demoStub) {
       return mockSearchResponse(body);

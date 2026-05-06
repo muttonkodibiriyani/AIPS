@@ -248,6 +248,42 @@ const SOFT_APPAREL_SLUG = new Set([
   "footwear_boots_other",
 ]);
 
+/** Valid `attrs.retrieval_category` values in the stratified CSV demo (+ LLM intent `merch_slugs`). */
+export const DEMO_MERCH_RETRIEVAL_SLUGS = [
+  "home_living",
+  "tops_tees",
+  "tops_shirts_blouses",
+  "knitwear",
+  "outerwear",
+  "bottoms_jeans",
+  "bottoms_trousers",
+  "bottoms_shorts",
+  "dresses_skirts",
+  "activewear",
+  "footwear_sandals_slides",
+  "footwear_sneakers",
+  "footwear_boots_other",
+  "underwear_lounge_socks",
+  "bags_accessories",
+  "other",
+] as const;
+
+export const DEMO_MERCH_RETRIEVAL_SLUG_SET = new Set<string>(DEMO_MERCH_RETRIEVAL_SLUGS);
+
+/** Optional LLM-extracted cues merged into offline lexical search (Gemini/OpenRouter JSON). */
+export type CsvSearchLlmAugment = {
+  expandedLexical?: string;
+  gender?: "men" | "women" | "kids";
+  extraColors?: string[];
+  merchSlugs?: string[];
+  apparelOnly?: boolean;
+  negatedTerms?: string[];
+};
+
+export type SearchCsvOptions = {
+  llmAugment?: CsvSearchLlmAugment | null;
+};
+
 /** Meaningful lexical tokens — drops stopwords and 1-letter noise; keeps Arabic/Unicode words. */
 function queryTokens(raw: string): string[] {
   const lowered = normalizeQueryPhrase(raw)
@@ -485,11 +521,23 @@ function scoreDoc(
   return score;
 }
 
+function applyNegationPenalty(p: ProductRecord, negated: string[] | undefined, score: number): number {
+  if (!negated?.length) return score;
+  const hay = `${p.search_text} ${p.title.en} ${p.title.ar}`.toLowerCase();
+  for (const t of negated) {
+    const n = String(t).trim().toLowerCase();
+    if (n.length < 3) continue;
+    if (hay.includes(n)) return score * 0.12;
+  }
+  return score;
+}
+
 export function searchCsvDemoCatalog(
   catalog: DemoCatalogFile,
   query: string,
   tenantId: string,
   pagination: { from?: number; size?: number },
+  options?: SearchCsvOptions,
 ): {
   products: ProductRecord[];
   total: number;
@@ -503,18 +551,36 @@ export function searchCsvDemoCatalog(
   const items = catalog.products ?? [];
   const from = pagination.from ?? 0;
   const size = Math.min(pagination.size ?? 24, 100);
+  const aug = options?.llmAugment ?? null;
   const queryFixed = fixRetailSearchTypos(query.trim());
+  const augmentedQuery = aug?.expandedLexical
+    ? `${queryFixed} ${aug.expandedLexical.trim()}`.replace(/\s+/g, " ").trim()
+    : queryFixed;
+
   const priceConstraints = parsePriceConstraints(queryFixed);
-  const qlRaw = queryFixed.toLowerCase();
-  const colorHintsList = colorHints(queryFixed);
-  const genderWant = genderIntent(queryFixed);
-  const tokenSource = stripPricePhrasesForTokenization(queryFixed);
+  const qlRaw = augmentedQuery.toLowerCase();
+  const colorBase = colorHints(queryFixed);
+  const colorAugPhrase = colorHints(augmentedQuery);
+  const colorFromLlm = (aug?.extraColors ?? []).map((c) => c.trim().toLowerCase()).filter((c) => c.length >= 3);
+  const colorHintsList = [...new Set([...colorBase, ...colorAugPhrase, ...colorFromLlm])].slice(0, 8);
+
+  let genderWant = genderIntent(augmentedQuery);
+  if (aug?.gender) genderWant = aug.gender;
+
+  const tokenSource = stripPricePhrasesForTokenization(augmentedQuery);
   const phrase = normalizeQueryPhrase(tokenSource);
   const qtok = queryTokens(tokenSource);
   const deprioritizeTees = wantsStructuredShirtsNotTees(phrase);
   const retrievalHints = retrievalCategoryHintsFromQuery(phrase, qlRaw);
-  const apparelStrict = strictSoftApparelFilter(queryFixed);
-  const apparelLoose = apparelDominantQuery(queryFixed);
+  if (aug?.merchSlugs?.length) {
+    for (const s of aug.merchSlugs) {
+      const k = String(s).trim().toLowerCase().replace(/\s+/g, "_");
+      if (DEMO_MERCH_RETRIEVAL_SLUG_SET.has(k)) retrievalHints.add(k);
+    }
+  }
+
+  const apparelStrict = strictSoftApparelFilter(augmentedQuery) || Boolean(aug?.apparelOnly);
+  const apparelLoose = apparelDominantQuery(augmentedQuery);
 
   let filtered = [...items];
 
@@ -549,7 +615,8 @@ export function searchCsvDemoCatalog(
     qtok.length === 0 && phrase.length < 2
       ? filtered.map((p) => ({ ...p, _score: 1 }))
       : filtered.map((p) => {
-          const s = scoreDoc(p, phrase, qtok, colorHintsList, deprioritizeTees, retrievalHints, genderWant, ql);
+          const raw = scoreDoc(p, phrase, qtok, colorHintsList, deprioritizeTees, retrievalHints, genderWant, ql);
+          const s = applyNegationPenalty(p, aug?.negatedTerms, raw);
           return { ...p, _score: s };
         });
 
@@ -602,6 +669,16 @@ export function searchCsvDemoCatalog(
       apparelDominantExcludeHomeOnly: apparelLoose && !apparelStrict,
       deprioritizeTees,
       retrievalCategoryHints: [...retrievalHints],
+      llmAugmentSummary: aug
+        ? {
+            expandedLexical: aug.expandedLexical ?? null,
+            genderOverride: aug.gender ?? null,
+            extraColors: aug.extraColors?.slice(0, 8) ?? null,
+            merchSlugs: aug.merchSlugs?.filter((x) => DEMO_MERCH_RETRIEVAL_SLUG_SET.has(String(x).toLowerCase())).slice(0, 8) ?? null,
+            apparelOnly: aug.apparelOnly ?? null,
+            negatedTermsSample: aug.negatedTerms?.slice(0, 8) ?? null,
+          }
+        : null,
       queryTokens: qtok.slice(0, 12),
       phrase,
       catalogBuildMeta: catalog.buildMeta ?? null,
