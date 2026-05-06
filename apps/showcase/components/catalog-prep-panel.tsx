@@ -37,7 +37,7 @@ function gzipWithProgress(file: File, onPct: (p: number) => void): Promise<Blob>
     } finally {
       reader.releaseLock();
     }
-    return new Blob(chunks, { type: "application/gzip" });
+    return new Blob(chunks as BlobPart[], { type: "application/gzip" });
   })();
 }
 
