@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CSV → gzip (catalog prep)</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+        background: #0b1220;
+        color: #e6edf3;
+        line-height: 1.55;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 4rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .hint {
+        font-size: 0.875rem;
+        color: #8b949e;
+        margin-top: 0.75rem;
+      }
+      label {
+        display: block;
+        margin-top: 1.25rem;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #6e7681;
+      }
+      input[type="file"] {
+        margin-top: 0.35rem;
+        width: 100%;
+      }
+      button {
+        margin-top: 1.25rem;
+        padding: 0.65rem 1.1rem;
+        border-radius: 0.5rem;
+        border: none;
+        background: linear-gradient(#2dd4bf, #14b8a6);
+        color: #052e33;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .bar-wrap {
+        margin-top: 1rem;
+        height: 0.55rem;
+        background: #21262d;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .bar {
+        height: 100%;
+        width: 0%;
+        background: #3fb950;
+        transition: width 0.12s ease-out;
+      }
+      .log {
+        margin-top: 1rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.75rem;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 0.5rem;
+        padding: 0.85rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .warn {
+        color: #f0b429;
+      }
+      .err {
+        color: #ff7b72;
+      }
+      ol.steps {
+        margin-top: 1.25rem;
+        padding-left: 1.1rem;
+        font-size: 0.875rem;
+        color: #8b949e;
+      }
+      ol.steps strong {
+        color: #e6edf3;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Prepare catalog.csv.gz — outside the storefront site</h1>
+      <p class="hint">
+        This tool lives in-repo at <strong>tools/catalog-gzip-prep/index.html</strong>. Open this file locally
+        (<code>file://…</code>) or publish this folder from any static host for a bookmarkable HTTPS link. Nothing is uploaded
+        from here unless <em>you</em> PUT the result somewhere.
+      </p>
+
+      <label for="f"> UTF-8 catalogue export (.csv) </label>
+      <input id="f" type="file" accept=".csv,text/csv" />
+
+      <button id="go" disabled type="button">Gzip · download catalog.csv.gz</button>
+
+      <div class="hint" style="margin-top: 1rem"><span id="stage">Idle</span> · read <strong id="r">—</strong> · gzip <strong id="gz">—</strong></div>
+      <div class="bar-wrap" aria-hidden="true"><div class="bar" id="bar"></div></div>
+
+      <div id="log" class="log" hidden></div>
+
+      <ol class="steps">
+        <li><strong>Gzip reduces size</strong> — easier to upload to GitHub Releases, Cloudflare R2, Vercel Blob, etc.</li>
+        <li>
+          <strong>Vercel + full offline JSON build:</strong> set environment variable <code>SHOWCASE_CATALOG_URL</code> to an
+          HTTPS URL that serves your <strong>.csv.gz</strong>. The build step now decompresses gzip while streaming.</li>
+        <li><strong>Expand row cap:</strong> set <code>SHOWCASE_DEMO_ROW_LIMIT=0</code> for unlimited rows (heavy builds — see <code>NODE_OPTIONS</code>).</li>
+        <li>
+          <strong>Enterprise search:</strong> for BM25/full recall at scale, ingest with
+          <code>scripts/catalog_upload_presigned.py</code> + gateway (OpenSearch).</li>
+        <li class="warn">
+          <strong>LLM clarification:</strong> the showcase LLM does <em>not</em> “learn” every SKU offline. Each search can
+          call models for intent; real recall comes from CSV JSON (offline) or OpenSearch when <code>COMMERCE_GATEWAY_URL</code> is set.
+        </li>
+      </ol>
+    </main>
+    <script>
+      /** @type {HTMLInputElement} */
+      const input = document.getElementById("f");
+      const go = document.getElementById("go");
+      const bar = document.getElementById("bar");
+      const stageEl = document.getElementById("stage");
+      const rEl = document.getElementById("r");
+      const gzEl = document.getElementById("gz");
+      const log = document.getElementById("log");
+
+      input.addEventListener("change", () => {
+        go.disabled = !(input.files && input.files[0]?.name?.toLowerCase().endsWith(".csv"));
+      });
+
+      /** @param {number} pct 0–100 */
+      function setPct(pct) {
+        bar.style.width = Math.min(100, Math.max(0, pct)) + "%";
+      }
+
+      /** @param {string} stage */
+      function setStage(stage) {
+        stageEl.textContent = stage;
+      }
+
+      /**
+       * Count bytes flowing into CompressionStream ≈ gzip progress indicator.
+       * @param {File} file
+       * @param {(readPct: number) => void} onReadPct
+       * @returns {Promise<Blob>}
+       */
+      async function gzipProgress(file, onReadPct) {
+        const total = file.size;
+        let passed = 0;
+        /** @type {TransformStream} */
+        const counter = new TransformStream({
+          transform(chunk, ctl) {
+            passed += chunk.byteLength;
+            onReadPct(Math.round((passed / total) * 60));
+            ctl.enqueue(chunk);
+          },
+        });
+        const inputStream = file.stream().pipeThrough(counter);
+        let stream = inputStream.pipeThrough(new CompressionStream("gzip"));
+        setStage("Compressing CSV…");
+
+        /** @type {Uint8Array[]} */
+        const out = [];
+        const reader = stream.getReader();
+        let gzAcc = 0;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              out.push(value);
+              gzAcc += value.byteLength;
+              const approx = Math.min(
+                98,
+                60 + Math.round((gzAcc / (total * 0.35 + 1)) * 37),
+              );
+              gzEl.textContent =
+                gzAcc >= 1048576
+                  ? `${(gzAcc / 1048576).toFixed(1)} MiB gz`
+                  : `${Math.round(gzAcc / 1024)} KiB gz`;
+              setPct(approx);
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        return new Blob(out, { type: "application/gzip" });
+      }
+
+      async function shaShort(str) {
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+        const arr = Array.from(new Uint8Array(buf).slice(0, 4));
+        return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
+
+      go.addEventListener("click", async () => {
+        log.hidden = true;
+        log.textContent = "";
+        log.className = "log";
+        const file = input.files?.[0];
+        if (!file) return;
+        if (typeof CompressionStream === "undefined") {
+          alert(
+            "This browser cannot gzip in-page. Use Chrome / Edge / Safari 16.4+, or run: gzip -k your.csv",
+          );
+          return;
+        }
+
+        go.disabled = true;
+        gzEl.textContent = "…";
+        rEl.textContent = `${(file.size / 1048576).toFixed(2)} MiB`;
+        try {
+          setStage("Streaming file through gzip…");
+          setPct(0);
+          const base = file.name.replace(/\\/g, "/").split("/").pop() ?? "catalog";
+          const stem = base.endsWith(".csv") ? base.slice(0, -4) : base;
+          const id = Date.now().toString(36) + (await shaShort(`${file.name}:${file.size}`)).slice(0, 8);
+          const outName = `${stem.replace(/[^a-zA-Z0-9._-]/g, "_")}_${id}.csv.gz`;
+
+          const blob = await gzipProgress(file, (p) => {
+            setPct(p);
+            gzEl.textContent = "…";
+          });
+          setPct(100);
+          setStage("Downloading file…");
+
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = outName;
+          a.click();
+          URL.revokeObjectURL(a.href);
+
+          gzEl.textContent = `${Math.round(blob.size / 1024)} KiB (final)`;
+
+          log.hidden = false;
+          log.innerHTML =
+            `Saved <strong>${escapeHtml(outName)}</strong>.\n` +
+            `Next: upload that file to HTTPS storage and set SHOWCASE_CATALOG_URL to its public URL`;
+          setStage("Done");
+        } catch (e) {
+          console.error(e);
+          log.hidden = false;
+          log.className = "log err";
+          log.textContent = e instanceof Error ? e.message : "gzip_failed";
+          setStage("Failed");
+          setPct(0);
+        } finally {
+          go.disabled = false;
+        }
+      });
+
+      /** @param {string} s */
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, (x) =>
+          ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#039;",
+          })[x],
+        );
+      }
+    </script>
+  </body>
+</html>

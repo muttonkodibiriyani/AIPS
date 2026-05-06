@@ -116,7 +116,8 @@ Requires `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. Run **Deploy 
 
 Compress your catalog CSV as **gzip** (`.csv.gz`). Use the same **`tenantId`** everywhere (ingest + search).
 
-The showcase UI (**Ingestion** card on `/`) gzips CSV in-browser, calls **`/api/catalog-upload/*`** (server proxies admin routes with `COMMERCE_API_KEY`), **PUT**s to the presigned MinIO URL, then polls **`/api/catalog-upload/jobs/{jobId}`**. For **very large** files or if the browser **PUT** is blocked, use **`scripts/catalog_upload_presigned.py`** (stdlib) or the curl flow below. **MinIO CORS** must allow your site origin for browser **PUT** to `uploadUrl`.
+**Browser prep (not on the storefront):** open **`tools/catalog-gzip-prep/index.html`** locally or host that folder as a static site — it reports read/gzip progress and downloads **`*.csv.gz`**. Then upload the blob to **GitHub Releases**, **R2/Blob/S3**, or any **HTTPS** host and set **`SHOWCASE_CATALOG_URL`** to its URL (**gzip is supported**: the showcase prebuild decompresses while streaming).  
+For **OpenSearch** indexing (full recall + gateway search), use **`scripts/catalog_upload_presigned.py`** or the curl flow below. The showcase **LLM** augments **per query**; it does not train on the whole catalog — search quality after ingest depends on **OpenSearch** (gateway) or **offline JSON** (CSV build).
 
 **1 Presign**
 

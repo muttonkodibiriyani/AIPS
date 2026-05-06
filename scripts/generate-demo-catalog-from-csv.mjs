@@ -16,8 +16,9 @@
  *     set SHOWCASE_DEMO_MERCH_UNLIMITED=1 to ingest every CSV row matching the slug (very large JSON possible).
  *
  * Remote CSV (no git commit of 200k demo JSON — regenerate on every build):
- *   SHOWCASE_CATALOG_URL — HTTPS URL to CSV; downloaded to SHOWCASE_CATALOG_DOWNLOAD_PATH (default
- *     apps/showcase/data/.catalog-fetched.csv), then demo-catalog.json is built. Point at latest export CDN/S3 blob.
+ *   SHOWCASE_CATALOG_URL — HTTPS URL to **plain CSV** or **.csv.gz** (gzip); if gzip, builder decompresses stream to
+ *     SHOWCASE_CATALOG_DOWNLOAD_PATH (default apps/showcase/data/.catalog-fetched.csv). Host the gzip on Releases,
+ *     R2, Blob — set URL in Vercel env.
  *   SHOWCASE_CATALOG_FETCH_IF_MISSING_ONLY — 1 = skip re-download when cached file exists.
  *   SHOWCASE_CATALOG_FETCH_AUTH — optional Authorization header (e.g. Bearer …).
  *   SHOWCASE_CATALOG_FETCH_HEADERS — optional JSON merged into fetch headers.
@@ -31,7 +32,7 @@ import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 
-import { parse } from "csv-parse";
+import { createGunzip } from "node:zlib";
 
 import {
   CATEGORY_TARGET_FRACTIONS,
@@ -61,7 +62,17 @@ function resolvedLocalCsvPath() {
   return DEFAULT_CSV;
 }
 
-/** Stream CSV to disk (multi‑hundred‑MB safe). */
+/** When local path or fetch target is gzip, pipe through gunzip before csv-parse. */
+function csvReadStreamForPath(csvPath) {
+  const s = createReadStream(csvPath);
+  const lower = String(csvPath).toLowerCase();
+  if (lower.endsWith(".gz")) {
+    return s.pipe(createGunzip());
+  }
+  return s;
+}
+
+/** Stream HTTP body to disk — if URL or server looks like gzip, decompress to plain UTF-8 CSV at destPath. */
 async function downloadCatalogFromUrl(urlStr, destPath) {
   const tm = parseInt(String(process.env.SHOWCASE_CATALOG_FETCH_TIMEOUT_MS || "7200000"), 10);
   const ms = Number.isFinite(tm) && tm > 0 ? tm : 7200000;
@@ -87,7 +98,21 @@ async function downloadCatalogFromUrl(urlStr, destPath) {
   });
   if (!res.ok) throw new Error(`Catalog fetch HTTP ${res.status}`);
   if (!res.body) throw new Error("Catalog fetch: empty body");
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(destPath));
+  const ctype = (res.headers.get("content-type") || "").toLowerCase();
+  let urlGz = false;
+  try {
+    urlGz = /\.gz($|\?)/i.test(new URL(urlStr).pathname);
+  } catch {
+    /* ignore */
+  }
+  const useGunzip = urlGz || ctype.includes("gzip");
+
+  const webIn = Readable.fromWeb(res.body);
+  if (useGunzip) {
+    await pipeline(webIn, createGunzip(), createWriteStream(destPath));
+  } else {
+    await pipeline(webIn, createWriteStream(destPath));
+  }
 }
 
 /**
@@ -397,7 +422,7 @@ async function streamCsvToProducts(csvPath, maxRows, segment, merchOnlySlug) {
 
 /** @param {string} csvPath @param {number | null} maxRows @param {string} segment @param {string} targetSlug */
 async function streamCsvMerchCategoryOnly(csvPath, maxRows, segment, targetSlug) {
-  const parser = createReadStream(csvPath).pipe(
+  const parser = csvReadStreamForPath(csvPath).pipe(
     parse({
       columns: true,
       skip_empty_lines: true,
@@ -447,7 +472,7 @@ async function streamCsvMerchCategoryOnly(csvPath, maxRows, segment, targetSlug)
 
 /** @param {string} csvPath @param {number | null} maxRows @param {string} segment */
 async function streamCsvUniformReservoir(csvPath, maxRows, segment) {
-  const parser = createReadStream(csvPath).pipe(
+  const parser = csvReadStreamForPath(csvPath).pipe(
     parse({
       columns: true,
       skip_empty_lines: true,
@@ -502,7 +527,7 @@ async function streamCsvStratifiedReservoir(csvPath, maxRows, segment) {
   let overflowSeen = 0;
   let seenSegmentRows = 0;
 
-  const parser = createReadStream(csvPath).pipe(
+  const parser = csvReadStreamForPath(csvPath).pipe(
     parse({
       columns: true,
       skip_empty_lines: true,
