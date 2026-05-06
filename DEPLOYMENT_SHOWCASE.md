@@ -72,7 +72,8 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
    | `COMMERCE_API_KEY` | `pk_stub` | Match the gateway’s API key checker. Same value for ingest/Swagger curl. |
    | `SHOWCASE_DEMO_SEARCH` | `false` or delete | Disables fake SKUs; `/api/search` proxies to **`/v1/search`**. |
 
-4. **Node.js:** **20.x** (see [`engines`](./package.json) and [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions)).
+4. **Node.js:** **20.x** (see [`engines`](./package.json) and [Node.js Version](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions)). Offline builds that embed a very large **`demo-catalog.json`** (e.g. **200 k** rows) can exhaust the default Node heap (**~4 GB**) during **`next build`**. **Vercel:** [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) sets **`NODE_OPTIONS=--max-old-space-size=8192`** for builds. **GitHub Actions:** the showcase workflow sets the same. **Local (PowerShell):** `$env:NODE_OPTIONS='--max-old-space-size=8192'` before **`npm run build -w @commerce-ai/showcase`**.
+
 
 5. Keep **Install** / **Build** overrides **OFF** under **Build & Development** so **`cd ../.. && npm install`** and **`npm run build`** from [`vercel.json`](./apps/showcase/vercel.json) apply.
 

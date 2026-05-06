@@ -40,4 +40,6 @@ jobs:
         run: npm run test -w @commerce-ai/showcase
 
       - name: Build showcase
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: npm run build -w @commerce-ai/showcase
