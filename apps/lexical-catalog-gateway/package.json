@@ -1,0 +1,20 @@
+{
+  "name": "@commerce-ai/lexical-catalog-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Temporary HTTP gateway — POST /v1/search backed by csv-demo lexical search over demo-catalog.json (no Nest / OpenSearch).",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts"
+  },
+  "engines": {
+    "node": ">=20.x"
+  },
+  "dependencies": {
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

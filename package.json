@@ -16,6 +16,7 @@
     "lint": "turbo run lint",
     "showcase:demo-catalog": "node scripts/generate-demo-catalog-from-csv.mjs",
     "catalog:lexicon-batch": "node scripts/catalog-lexicon-batch.mjs",
+    "lexical-gateway": "npm run start -w @commerce-ai/lexical-catalog-gateway",
     "types:generate": "pnpm exec openapi-typescript contracts/openapi.yaml -o packages/shared-types/src/generated/api.ts --export-type --path-params-as-types",
     "gateway:dev": "pnpm --filter @commerce-ai/api-gateway start:dev",
     "showcase:dev": "pnpm --filter @commerce-ai/showcase dev",
