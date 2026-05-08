@@ -1,4 +1,5 @@
 import { parsePriceConstraints, productMatchesPriceConstraints } from "./price-constraints";
+import { mergeRetailHeuristicsIntoAugment, partyStylisticCoolTrap } from "./query-intent-heuristics";
 
 export type ProductRecord = {
   product_id: string;
@@ -177,6 +178,17 @@ export function retrievalCategoryHintsFromQuery(phrase: string, rawLower: string
   ) {
     s.add("home_living");
   }
+  /** Occasion-driven fashion (narrow lexical overlap with SKU noise like “cool bag”). */
+  if (
+    /\b(?:party\s+wear|dressy\b|cocktail\b|evening\s+wear|(?:going|night)[\s-]+(?:out\b)|prom\b|gala\b)/u.test(q) ||
+    /\bclub(?:bing)?(?:\s+wear|\s+fashion|\s+outfit)\b/u.test(q)
+  ) {
+    s.add("dresses_skirts");
+    s.add("tops_shirts_blouses");
+    s.add("outerwear");
+    s.add("footwear_boots_other");
+    s.add("bags_accessories");
+  }
   if (/\bwinter\b|\bwarm\b\s*(?:coat|layers?|gear|tops?|clothes)|\bfleece\b|\bthermal\b|\bpuffer\b|\bdown\s+(?:coat|jacket|puffer)|\bski\b/u.test(q)) {
     s.add("outerwear");
     s.add("knitwear");
@@ -247,6 +259,14 @@ export function apparelDominantQuery(raw: string): boolean {
       ql,
     );
 
+  /** Party / cocktail / gala — shopper wants wearable fashion grids, not “cool bags”. */
+  const partyWearCue =
+    /\bparty\s+wear\b/u.test(ql) ||
+    /\b(?:cocktail|evening)\s+(?:dress|dresses)\b|\bcocktail\s+dress\b/u.test(ql) ||
+    /\b(?:club|clubbing)\s+wear\b/u.test(ql) ||
+    /\b(?:prom|gala)\b/u.test(ql) ||
+    /\b(?:dressy\s+outfit|night\s+out)\b/u.test(ql);
+
   const homeCue = /\b(?:vase|cushion|duvet|blackout|curtain|candle\b|stoneware|homeware|bed\s*linen)\b/u.test(ql);
   const asksAccessorySKU =
     /\b(?:belt\b|wallet|crossbody|handbag|keyring|cufflinks|loafers|sandals\b|slides?\b)/u.test(ql);
@@ -257,7 +277,8 @@ export function apparelDominantQuery(raw: string): boolean {
       winterOutfitCue ||
       genderWithGarmentType ||
       seasonalCollectionWithGender ||
-      summerEditForGender) &&
+      summerEditForGender ||
+      partyWearCue) &&
     !homeCue &&
     !asksAccessorySKU
   );
@@ -266,7 +287,12 @@ export function apparelDominantQuery(raw: string): boolean {
 /** True when shopper names clothing / layered winter — restrict grid to SOFT_APPAREL buckets (drops belts / curtains noise). */
 function strictSoftApparelFilter(raw: string): boolean {
   const ql = raw.trim().toLowerCase();
-  return /\b(?:clothes|clothing|apparel)\b|\bwinter\s+wear\b/u.test(ql);
+  return (
+    /\b(?:clothes|clothing|apparel)\b|\bwinter\s+wear\b/u.test(ql) ||
+    /\bparty\s+wear\b/u.test(ql) ||
+    /\b(?:cocktail|evening)\s+(?:dress|dresses|wear)\b|\bcocktail\s+dress\b/u.test(ql) ||
+    /\b(?:prom|gala)\s+wear\b|\bgala\s+dress\b/u.test(ql)
+  );
 }
 
 const SOFT_APPAREL_SLUG = new Set([
@@ -560,6 +586,14 @@ function scoreDoc(
     score += 12;
   }
 
+  /** “Looks cool … party wear” ≠ insulated lunch SKUs titled “cool bag”. */
+  if (
+    partyStylisticCoolTrap(queryLower) &&
+    /\bcool\s+bag\b|\blunch\s+bag\b|\binsulated\b|\bcooler\b|\bthermal\s+bag\b/u.test(`${titleEn} ${hay}`)
+  ) {
+    score *= 0.035;
+  }
+
   return score;
 }
 
@@ -593,8 +627,8 @@ export function searchCsvDemoCatalog(
   const items = catalog.products ?? [];
   const from = pagination.from ?? 0;
   const size = Math.min(pagination.size ?? 24, 100);
-  const aug = options?.llmAugment ?? null;
   const queryFixed = fixRetailSearchTypos(query.trim());
+  const aug = mergeRetailHeuristicsIntoAugment(queryFixed, options?.llmAugment ?? null);
   const augmentedQuery = aug?.expandedLexical
     ? `${queryFixed} ${aug.expandedLexical.trim()}`.replace(/\s+/g, " ").trim()
     : queryFixed;

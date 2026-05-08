@@ -8,6 +8,7 @@ This folder is the **structured documentation set** for the **Commerce AI** plat
 | [SECURITY_ARCHITECTURE.md](./SECURITY_ARCHITECTURE.md) | Security, platform, compliance | Trust boundaries, authn/z, secrets, tenancy, hardening checklist |
 | [TECHNICAL_REQUIREMENTS.md](./TECHNICAL_REQUIREMENTS.md) | Product, engineering, procurement | Formal requirements (functional + non-functional) traceable to code and OpenAPI |
 | [COMMERCIAL_POSITIONING_AND_INTEGRATION.md](./COMMERCIAL_POSITIONING_AND_INTEGRATION.md) | Sales, partners, customer architects | Value proposition and **stack-agnostic** integration story |
+| [SEARCH_QUALITY_RUBRIC.md](./SEARCH_QUALITY_RUBRIC.md) | Product, relevance owners | How to talk about quality honestly; benchmark requirements; party/slang heuristics narrative |
 
 **Related (repository root):**
 

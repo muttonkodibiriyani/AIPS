@@ -22,6 +22,7 @@ Rules:
 - merch_slugs: subset of EXACTLY these tokens only: ${SLUG_LINE}
 - colors: extra colour words (lowercase) implied by the query beyond literal tokens.
 - negated_terms: lowercase words/phrases they want excluded (e.g. "curtain", "belt").
+- Homonym guard: English "cool" often means stylish ("looks cool", "something cool") NOT "cool bag" / insulated lunch cooler. When the shopper is asking for apparel (party wear, going-out, cocktail, gala, dresses) and uses "cool" in that slang sense, you MUST populate negated_terms with at least "cool bag", "lunch bag", "insulated", "cooler".
 `;
 
 function stripCodeFence(raw: string): string {

@@ -236,6 +236,44 @@ describe("intent: men's summer collection excludes linen bedding (NL noise)", ()
   });
 });
 
+describe("intent: party wear + slang cool (not cool lunch bags)", () => {
+  const cat: DemoCatalogFile = {
+    products: [
+      P({
+        product_id: "cooler-bag",
+        sku: "HM-COOL-01",
+        title: { en: "Cool bag with a shoulder strap", ar: "" },
+        attrs: {
+          customer_group: ",Man,",
+          retrieval_category: "bags_accessories",
+          color: "Black",
+        },
+        pricing: { aed: 89 },
+        search_text: "cool bag shoulder strap insulated picnic lunch men black",
+      }),
+      P({
+        product_id: "midi-dress",
+        sku: "HM-DRS-99",
+        title: { en: "Satin strappy midi dress", ar: "" },
+        attrs: {
+          customer_group: ",Woman,",
+          retrieval_category: "dresses_skirts",
+          color: "Black",
+        },
+        pricing: { aed: 199 },
+        search_text: "satin strappy midi dress party evening cocktail summer woman black",
+      }),
+    ],
+  };
+
+  it('NL: "party wear … looks cool for summer" prefers dress, not insulated “cool bag”', () => {
+    const q = "i need a party wear suggest that looks cool for summer";
+    const r = searchCsvDemoCatalog(cat, q, "demo", { from: 0, size: 10 });
+    expect(r.products.map((p) => p.product_id)).not.toContain("cooler-bag");
+    expect(r.products[0]?.product_id).toBe("midi-dress");
+  });
+});
+
 describe("SAMPLE_QUERIES (copy into manual QA with a real merch-only sandals build)", () => {
   it("documents strings for storefront smoke (assert true)", () => {
     const samples = [
@@ -248,6 +286,7 @@ describe("SAMPLE_QUERIES (copy into manual QA with a real merch-only sandals bui
       "organic cotton duvet ivory queen under 350 AED",
       "winter wear for men clothing blue and black",
       "i wanted to know if there any summer collection for men",
+      "i need a party wear suggest that looks cool for summer",
     ];
     expect(samples.length).toBeGreaterThanOrEqual(6);
   });
