@@ -17,7 +17,7 @@ Schema:
 
 Rules:
 - gender: null unless the shopper clearly targets a segment.
-- apparel_only: true when they want wearable fashion (tops, bottoms, shoes, accessories worn on the body)—including phrases like "summer collection for men/women", "new season for men", seasonal edits/lookbooks **unless** they mention home/bedding (duvet, sheets, curtains, cushions, towels, vases).
+- apparel_only: true when they want wearable fashion (tops, bottoms, shoes, accessories worn on the body)—including phrases like "summer collection for men/women", "women/men/kids … wear" and "pink wear" (colour + wear) even if they never say "clothing", "new season for men", seasonal edits/lookbooks **unless** they clearly ask for home/bedding (duvet, sheets, curtains, cushions, towels, vases, candles as the product).
 - expanded_keywords: extra EN tokens (synonyms, garment types, fabrics, occasions) not already in the query — space-separated, lowercase, no prices.
 - merch_slugs: subset of EXACTLY these tokens only: ${SLUG_LINE}
 - colors: extra colour words (lowercase) implied by the query beyond literal tokens.

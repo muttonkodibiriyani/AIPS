@@ -107,6 +107,7 @@ function stripPricePhrasesForTokenization(q: string): string {
   let s = q;
   const chunks: RegExp[] = [
     /\b(?:under|below|less\s+than|max|maximum|up\s+to|at\s+most|not\s+more\s+than|<)\s+[\d.,]+\s*(?:aed|sar|د\.إ|ر\.س)?\b/giu,
+    /\b(?:under|below|less\s+than|max|maximum|up\s+to|at\s+most|not\s+more\s+than|<)\s+[\d.,]+(?:aed|sar)\b/giu,
     /\b(?:above|over|more\s+than|at\s+least|minimum|min\.?|from)\s+[\d.,]+\s*(?:aed|sar|د\.إ|ر\.س)?\b/giu,
     /\b(?:worth|around|about|budget)\s+[\d.,]+\s*(?:aed|sar)?\s*(?:and\s+)?above\b/giu,
     /\b[\d.,]+\s*(?:aed|sar|د\.إ|ر\.س)\s+(?:and\s+)?above\b/giu,
@@ -229,15 +230,37 @@ export function retrievalCategoryHintsFromQuery(phrase: string, rawLower: string
     s.add("tops_shirts_blouses");
     s.add("outerwear");
   }
+  /** "Women/men … wear" — standalone `wear` is apparel in retail NL (not "footwear" / "hair wear"). */
+  if (
+    /\b(?:women'?s|womens|for\s+women|\bwomen\b|men'?s|mens|for\s+men|\bmen\b|kids?\b|boys?\b|girls?\b)/u.test(q) &&
+    /\bwear\b/u.test(q) &&
+    !/\b(?:hair|eye|foot|face|neck|floor)\s+wear\b/u.test(q)
+  ) {
+    s.add("tops_shirts_blouses");
+    s.add("tops_tees");
+    s.add("dresses_skirts");
+    s.add("knitwear");
+    s.add("outerwear");
+    s.add("bottoms_trousers");
+    s.add("bottoms_jeans");
+  }
   return s;
 }
 
 /** Apparel-heavy NL without asking for décor — suppress home / mis-token colour overlap (blackout curtains, etc.). */
 export function apparelDominantQuery(raw: string): boolean {
   const ql = raw.trim().toLowerCase();
-  const explicitApparelWord = /\b(?:clothes|clothing|apparel|menswear|womenswear|outfits?|\bwinter\s+wear\b|\bsummer\s+wear\b)/u.test(
-    ql,
-  );
+  const standaloneFashionWear =
+    /\bwear\b/u.test(ql) && !/\b(?:hair|eye|foot|face|neck|floor)\s+wear\b/u.test(ql);
+  const genderSegment =
+    /\b(men'?s|mens|for\s+men|\bmen\b|\bman\b|women'?s|womens|for\s+women|\bwomen\b|kids?\b|boys?\b|girls?\b)/u.test(
+      ql,
+    );
+  /** e.g. "women pink wear" — `wear` alone signals clothing, not homeware */
+  const genderWithFashionWear = Boolean(genderSegment && standaloneFashionWear);
+  const explicitApparelWord =
+    /\b(?:clothes|clothing|apparel|menswear|womenswear|outfits?|\bwinter\s+wear\b|\bsummer\s+wear\b)/u.test(ql) ||
+    genderWithFashionWear;
   const seasonalWarm = /\bwinter\b|\bthermal\b|\bfleece\b|\bpuffer\b|\bdown\s+jacket\b/u.test(ql);
   const winterOutfitCue = /\bwinter\b/u.test(ql) && /\b(?:wear|warm|cold|snow|coat|layering)\b/u.test(ql);
   const garmentType =
@@ -245,10 +268,6 @@ export function apparelDominantQuery(raw: string): boolean {
   const genderWithGarmentType =
     /\b(?:men|women|mens|womens|\bman\b|\bwoman\b|kids?\b)/u.test(ql) && garmentType;
 
-  const genderSegment =
-    /\b(men'?s|mens|for\s+men|\bmen\b|\bman\b|women'?s|womens|for\s+women|\bwomen\b|kids?\b|boys?\b|girls?\b)/u.test(
-      ql,
-    );
   /** Retail phrasing: “summer collection for men” is apparel, not bedding that happens to say “linen”. */
   const seasonalCollectionWithGender =
     /\b(summer|spring|autumn|fall)\b/u.test(ql) && /\bcollection\b/u.test(ql) && genderSegment;
@@ -287,8 +306,15 @@ export function apparelDominantQuery(raw: string): boolean {
 /** True when shopper names clothing / layered winter — restrict grid to SOFT_APPAREL buckets (drops belts / curtains noise). */
 function strictSoftApparelFilter(raw: string): boolean {
   const ql = raw.trim().toLowerCase();
+  const genderSeg =
+    /\b(men'?s|mens|for\s+men|\bmen\b|\bman\b|women'?s|womens|for\s+women|\bwomen\b|kids?\b|boys?\b|girls?\b)/u.test(
+      ql,
+    );
+  const fashionWear =
+    /\bwear\b/u.test(ql) && !/\b(?:hair|eye|foot|face|neck|floor)\s+wear\b/u.test(ql);
   return (
     /\b(?:clothes|clothing|apparel)\b|\bwinter\s+wear\b/u.test(ql) ||
+    (Boolean(genderSeg) && fashionWear) ||
     /\bparty\s+wear\b/u.test(ql) ||
     /\b(?:cocktail|evening)\s+(?:dress|dresses|wear)\b|\bcocktail\s+dress\b/u.test(ql) ||
     /\b(?:prom|gala)\s+wear\b|\bgala\s+dress\b/u.test(ql)
@@ -777,6 +803,94 @@ export function searchCsvDemoCatalog(
       catalogBuildMeta: catalog.buildMeta ?? null,
     },
   };
+}
+
+function genderSearchTokenFromGroup(raw: string | undefined): "women" | "men" | "kids" | null {
+  const cg = (raw ?? "").toLowerCase();
+  if (/\b(woman|women|ladies|lady)\b/u.test(cg)) return "women";
+  if ((/\b(man|men|mens)\b/u.test(cg) || /\bman\b/u.test(cg)) && !/\b(woman|women|ladies)\b/u.test(cg)) return "men";
+  if (/\b(boy|boys|girl|girls|kid|kids|child|children|junior|toddler|baby|infant)\b/u.test(cg)) return "kids";
+  return null;
+}
+
+/**
+ * PDP “open in NL search” query: gender, colour, merch label/slug, compact price cap for demo parsers,
+ * then {@link searchCsvDemoCatalog} hit-count to prefer a query that actually returns results.
+ */
+export function buildPdpNlSearchQuery(product: ProductRecord, catalog: DemoCatalogFile): string {
+  const slug = product.attrs?.retrieval_category?.trim() ?? "";
+  const isApparel = SOFT_APPAREL_SLUG.has(slug);
+  const parts: string[] = [];
+
+  const genderTok = genderSearchTokenFromGroup(product.attrs?.customer_group);
+  if (genderTok && isApparel) parts.push(genderTok);
+
+  const colorRaw = product.attrs?.color?.trim();
+  if (colorRaw) {
+    const head = (colorRaw.split(/\s*[/|]\s*/)[0]?.trim().toLowerCase() ?? "").replace(/\s+/g, " ");
+    if (head.length >= 3 && head.length <= 30) parts.push(head);
+  }
+
+  const labelRaw = product.attrs?.retrieval_category_label?.trim();
+  const merchPhrase = labelRaw
+    ? labelRaw.replace(/_/g, " ").replace(/\s+/g, " ").trim().toLowerCase()
+    : slug.replace(/_/g, " ").trim();
+
+  if (merchPhrase.length >= 2) parts.push(merchPhrase);
+
+  const blob = parts.join(" ").toLowerCase();
+  if (isApparel && genderTok && !/\bwear\b/u.test(blob)) parts.push("wear");
+
+  const aed = product.pricing?.aed;
+  const sar = product.pricing?.sar;
+  if (typeof aed === "number" && Number.isFinite(aed)) {
+    parts.push(`under ${Math.max(15, Math.ceil(aed * 1.35))}AED`);
+  } else if (typeof sar === "number" && Number.isFinite(sar)) {
+    parts.push(`under ${Math.max(15, Math.ceil(sar * 1.35))} SAR`);
+  }
+
+  let q = parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  if (q.length < 3) q = (product.title?.en || product.title?.ar || product.sku).slice(0, 96).trim();
+
+  const countHits = (s: string) => searchCsvDemoCatalog(catalog, s, "pdp_nl", { from: 0, size: 12 }).total;
+
+  let best = q;
+  let bestTotal = countHits(best);
+
+  const strippedPrice = q
+    .replace(/\bunder\s+[\d.,]+\s*aed\b/giu, "")
+    .replace(/\bunder\s+[\d.,]+aed\b/giu, "")
+    .replace(/\bunder\s+[\d.,]+\s*sar\b/giu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (strippedPrice.length >= 5 && strippedPrice !== q) {
+    const t = countHits(strippedPrice);
+    if (t > bestTotal) {
+      best = strippedPrice;
+      bestTotal = t;
+    }
+  }
+
+  if (bestTotal < 3 && genderTok && isApparel && slug.length > 0) {
+    const loose = `${genderTok} wear ${slug.replace(/_/g, " ")}`.replace(/\s+/g, " ").trim();
+    const t = countHits(loose);
+    if (t > bestTotal) {
+      best = loose;
+      bestTotal = t;
+    }
+  }
+
+  if (bestTotal < 1 && !isApparel) {
+    const homePieces = [
+      genderTok ?? "",
+      colorRaw ? (colorRaw.split(/\s*[/|]\s*/)[0]?.trim().toLowerCase() ?? "").replace(/\s+/g, " ") : "",
+      merchPhrase || slug.replace(/_/g, " "),
+    ].filter((x) => x.trim().length >= 2);
+    const homeQ = homePieces.join(" ").replace(/\s+/g, " ").trim();
+    if (homeQ.length >= 4 && countHits(homeQ) >= 1) best = homeQ;
+  }
+
+  return best;
 }
 
 function aggregateFacet(values: string[]): { key: string; count: number }[] {

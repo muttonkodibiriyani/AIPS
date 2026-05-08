@@ -17,7 +17,7 @@ export function SiteHeader() {
           </Link>
           <nav className="flex shrink-0 items-center gap-4 text-[13px] font-medium sm:gap-6 md:order-last">
           <Link href="#experience" className="hidden text-slate-400 transition hover:text-white md:inline">
-            Live NL search
+            AI contextual search
           </Link>
           <Link href="#capabilities" className="hidden text-slate-400 transition hover:text-white sm:inline">
             Platform

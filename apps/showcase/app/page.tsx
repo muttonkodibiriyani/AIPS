@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BarChart3, Globe2, Layers3, Radar, Search, Sparkles, Timer, Database, ShieldCheck } from "lucide-react";
+import { BarChart3, Globe2, Layers3, Radar, Sparkles, Timer, Database, ShieldCheck } from "lucide-react";
 
 import { CatalogPrepPanel } from "@/components/catalog-prep-panel";
 import { Hero } from "@/components/hero";
@@ -73,18 +73,17 @@ export default function Page() {
       <section id="experience" className="scroll-mt-28 py-24 sm:scroll-mt-24">
         <div className="mx-auto max-w-6xl px-4">
           <div className="mb-14 text-center animate-fade-up">
-            <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-300/95">
-              <Search className="size-3.5" aria-hidden /> Live playground
+            <span className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-500/35 bg-violet-500/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-violet-200/95">
+              <Sparkles className="size-3.5" aria-hidden /> AI contextual search playground
             </span>
             <h2 className="font-display mt-4 text-3xl tracking-tight text-white sm:text-4xl lg:text-[2.65rem]">
-              See how search turns intent into&nbsp;
-              <span className="text-gradient-warm">product discovery</span>.
+              Contextual&nbsp;
+              <span className="text-gradient-warm">AI search</span>&nbsp; first — then ranked products.
             </h2>
             <p className="mx-auto mt-5 max-w-2xl text-base text-slate-400">
-              Describe a need (“white stoneware vase under 200 AED”) — the playground applies price and colour constraints,
-              ranks catalog rows, and exposes how filters were interpreted. With LLM keys configured, an augment lane widens
-              synonyms and merch signals; if too few products match, refined query chips nudge shoppers toward findable
-              phrasing.
+              The default path interprets each message with an LLM augment (when keys are set), ranks the AI‑weighted lane
+              ahead of raw keywords, and falls back to sparse “try this” suggestions if the catalog is quiet. Your shoppers
+              stay in one search box from vague idea to SKU.
             </p>
             <p className="mx-auto mt-3 max-w-2xl text-sm text-slate-500">
               Deploy this app on Vercel from your repo, then set{" "}
@@ -167,7 +166,7 @@ export default function Page() {
                 href="#experience"
                 className="rounded-xl border border-white/22 bg-transparent px-7 py-3.5 text-[15px] font-medium text-white transition hover:border-white/38 hover:bg-white/5 active:scale-[0.99]"
               >
-                Show live NL search ↑
+                Open AI search demo ↑
               </Link>
             </div>
           </div>

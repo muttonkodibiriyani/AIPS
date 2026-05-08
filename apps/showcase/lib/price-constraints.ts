@@ -67,9 +67,13 @@ export function parsePriceConstraints(rawQuery: string): ParsedPriceConstraints 
   }
 
   /* --- ceiling: under / below / less than / max / up to --- */
-  const capM = lower.match(
+  let capM = lower.match(
     /\b(?:under|below|less\s+than|max|maximum|up\s+to|at\s+most|not\s+more\s+than|<)\s+([\d.,]+)\s*(aed|sar|د\.إ|ر\.س)?\b/u,
   );
+  /* Compact money glued to amount ("under 120aed") — \b after the number misses before currency */
+  if (!capM && rangeMin == null) {
+    capM = lower.match(/\b(?:under|below|less\s+than|max|maximum|up\s+to|at\s+most|not\s+more\s+than|<)\s+([\d.,]+)(aed|sar)\b/u);
+  }
   if (capM && rangeMin == null) {
     cap = parseNum(capM[1] ?? "");
   }

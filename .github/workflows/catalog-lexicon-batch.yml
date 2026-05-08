@@ -1,0 +1,55 @@
+# Progressively scans a large merchant CSV (5k–10k data rows per run), calls Gemini once per run
+# (optional) to propose bulk search tokens, and appends slices to NDJSON. State + slices are cached
+# between pushes so each push advances the cursor through the file.
+#
+# Required for LLM: repo secret GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY.
+# Required for CI without committed catalog.csv: secret SHOWCASE_CATALOG_URL (plain or .csv.gz).
+#
+# Vercel note: cache is GitHub-side; to enrich Vercel builds, commit slices or copy cache into the build (see scripts header).
+
+name: Catalog batch lexicon
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: catalog-lexicon-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lexicon-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            apps/showcase/data/.catalog-lexicon-state.json
+            apps/showcase/data/.catalog-lexicon-slices.ndjson
+          key: catalog-lexicon-${{ github.repository }}-v1
+          restore-keys: |
+            catalog-lexicon-${{ github.repository }}-
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install root deps (csv-parse)
+        run: npm install
+
+      - name: Run one batch (5k–10k rows)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          SHOWCASE_CATALOG_URL: ${{ secrets.SHOWCASE_CATALOG_URL }}
+          SHOWCASE_CATALOG_FETCH_AUTH: ${{ secrets.SHOWCASE_CATALOG_FETCH_AUTH }}
+          SHOWCASE_CATALOG_FETCH_IF_MISSING_ONLY: "1"
+          SHOWCASE_LLM_TIMEOUT_MS: "55000"
+        run: node scripts/catalog-lexicon-batch.mjs

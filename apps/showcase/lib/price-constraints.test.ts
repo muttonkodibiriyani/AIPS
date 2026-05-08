@@ -10,6 +10,12 @@ describe("parsePriceConstraints", () => {
     expect(p.currency).toBe("aed");
   });
 
+  it("parses ceiling with compact currency (no space before AED)", () => {
+    const p = parsePriceConstraints("women pink wear under 120AED");
+    expect(p.cap).toBe(120);
+    expect(p.currency).toBe("aed");
+  });
+
   it("parses ceiling under N SAR", () => {
     const p = parsePriceConstraints("Blue jacket under 450 SAR for gifts");
     expect(p.cap).toBe(450);

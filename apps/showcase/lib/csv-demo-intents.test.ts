@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DemoCatalogFile, ProductRecord } from "./csv-demo-search";
-import { searchCsvDemoCatalog } from "./csv-demo-search";
+import { buildPdpNlSearchQuery, searchCsvDemoCatalog } from "./csv-demo-search";
 
 function P(p: Partial<ProductRecord> & Pick<ProductRecord, "product_id" | "sku">): ProductRecord {
   return {
@@ -18,6 +18,34 @@ function P(p: Partial<ProductRecord> & Pick<ProductRecord, "product_id" | "sku">
     ...p,
   };
 }
+
+describe("PDP canonical NL search query", () => {
+  it("combines gender, colour, merch, wear, compact price and matches the catalog", () => {
+    const cat: DemoCatalogFile = {
+      products: [
+        P({
+          product_id: "pdp-pink-top",
+          sku: "PDP-PINK",
+          title: { en: "Pink ribbed jersey top", ar: "" },
+          attrs: {
+            customer_group: ",Woman,",
+            retrieval_category: "tops_shirts_blouses",
+            retrieval_category_label: "Tops shirts blouses",
+            color: "Pink",
+          },
+          pricing: { aed: 99 },
+          search_text: "pink ribbed jersey top woman shirt blouse casual summer wear",
+        }),
+      ],
+    };
+    const prod = cat.products[0]!;
+    const q = buildPdpNlSearchQuery(prod, cat);
+    expect(q.toLowerCase()).toContain("women");
+    expect(q.toLowerCase()).toContain("pink");
+    expect(q).toMatch(/under\s*\d+\s*AED|under\s*\d+AED/i);
+    expect(searchCsvDemoCatalog(cat, q, "demo", { from: 0, size: 8 }).total).toBeGreaterThanOrEqual(1);
+  });
+});
 
 describe("intent: gender + category (men sandals)", () => {
   const cat: DemoCatalogFile = {
@@ -192,6 +220,38 @@ describe("intent: women sneakers + lexical", () => {
   it('NL: "women pink sneakers trainers summer"', () => {
     const r = searchCsvDemoCatalog(cat, "women pink sneakers trainers summer", "demo", { from: 0, size: 5 });
     expect(r.products[0]?.product_id).toBe("w-shoe");
+  });
+});
+
+describe("intent: women pink wear + compact AED cap excludes home décor", () => {
+  const cat: DemoCatalogFile = {
+    products: [
+      P({
+        product_id: "candle",
+        sku: "333264532",
+        title: { en: "Large OUD scented candle", ar: "" },
+        attrs: { customer_group: "Man | Woman", retrieval_category: "home_living", color: "Black" },
+        pricing: { aed: 30 },
+        search_text: "large oud scented candle black glass jar aroma home living",
+      }),
+      P({
+        product_id: "pink-top",
+        sku: "TOP-PINK",
+        title: { en: "Pink ribbed jersey top", ar: "" },
+        attrs: { customer_group: ",Woman,", retrieval_category: "tops_shirts_blouses", color: "Pink" },
+        pricing: { aed: 99 },
+        search_text: "pink ribbed jersey top casual woman blouse summer wear breathable",
+      }),
+    ],
+  };
+
+  it('NL: "women pink wear under 120AED" surfaces apparel top, never home candle', () => {
+    const q = "women pink wear under 120AED";
+    const r = searchCsvDemoCatalog(cat, q, "demo", { from: 0, size: 10 });
+    expect(r.appliedFilters.priceConstraints.cap).toBe(120);
+    expect(r.products.map((x) => x.product_id)).toContain("pink-top");
+    expect(r.products.map((x) => x.product_id)).not.toContain("candle");
+    expect(r.products[0]?.product_id).toBe("pink-top");
   });
 });
 

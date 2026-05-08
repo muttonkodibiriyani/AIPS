@@ -52,6 +52,7 @@ async function withSparseSuggestions(
 async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<CsvSearchPayload> {
   const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
   const query = typeof body.query === "string" ? body.query : "";
+  const discoveryWeights = discoveryWeightsFromBody(body);
   const pagination =
     body.pagination && typeof body.pagination === "object" && body.pagination !== null
       ? (body.pagination as { from?: number; size?: number })
@@ -67,7 +68,8 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
   const llmEnabled = process.env.SHOWCASE_LLM_INTENT !== "false" && llmKeysConfigured;
   const sparseLlmEligible = process.env.SHOWCASE_SPARSE_LLM_HINTS !== "false" && llmKeysConfigured;
 
-  const fusionEnabled = process.env.SHOWCASE_SEARCH_FUSION !== "false" && llmEnabled;
+  /** Hybrid LLM+lexical lane: on whenever keys exist (intent still gated inside augment fetch). */
+  const fusionEnabled = process.env.SHOWCASE_SEARCH_FUSION !== "false" && llmKeysConfigured;
 
   if (fusionEnabled) {
     const capRaw = parseInt(String(process.env.SHOWCASE_SEARCH_FUSE_CAP ?? ""), 10);
@@ -100,8 +102,9 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
           },
         },
         interpretation: {
-          lexicalWeight: 1,
-          semanticWeight: 0,
+          ...discoveryWeights,
+          contextualSearchLedByLlm: false,
+          rankingNote: "Pure lexical fallback (LLM augment unavailable).",
           fusion: false,
           llmLexicalLanePriority: false,
           llmIntentAttempted: llmEnabled,
@@ -138,11 +141,12 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
         },
       },
       interpretation: {
-        lexicalWeight: 0.55,
-        semanticWeight: 0,
+        ...discoveryWeights,
+        contextualSearchLedByLlm: true,
         fusion: true,
         llmLexicalLanePriority: true,
         pureLexicalLaneMerged: true,
+        rankingNote: "Contextual-first: AI-augmented hits ranked ahead, then lexical tail merged.",
         llmIntentAttempted: llmEnabled,
         llmIntentApplied: true,
         llmTeamMembersSucceeded: team.memberCount,
@@ -166,9 +170,12 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
       searchFusion: { attempted: false, applied: false, reason: "fusion_disabled" },
     },
     interpretation: {
-      lexicalWeight: 1,
-      semanticWeight: 0,
+      ...discoveryWeights,
+      contextualSearchLedByLlm: Boolean(team.merged),
       fusion: false,
+      rankingNote: team.merged
+        ? "LLM augment fused into lexical scores (fusion off)."
+        : "Lexical only — add API keys for hybrid contextual ranking.",
       llmLexicalLanePriority: Boolean(team.merged),
       llmIntentAttempted: llmEnabled,
       llmIntentApplied: Boolean(team.merged),
@@ -181,6 +188,7 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
 function buildMockSearchPayload(body: Record<string, unknown>): CsvSearchPayload {
   const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
   const query = typeof body.query === "string" ? body.query : "";
+  const discoveryWeights = discoveryWeightsFromBody(body);
   const q = query.toLowerCase();
 
   const all: ProductCard[] = [
@@ -257,7 +265,12 @@ function buildMockSearchPayload(body: Record<string, unknown>): CsvSearchPayload
       tenantId,
       hint: "Hardcoded stub. Add apps/showcase/data/catalog.csv or COMMERCE_GATEWAY_URL for real data.",
     },
-    interpretation: { lexicalWeight: 1, semanticWeight: 0 },
+    interpretation: {
+      ...discoveryWeights,
+      contextualSearchLedByLlm: false,
+      fusion: false,
+      rankingNote: "Stub grid — use catalog or gateway for AI search.",
+    },
   };
 }
 

@@ -23,4 +23,8 @@ coverage/
 # Merchant-scale catalog exports (often 100MB–1GB+). Use Git LFS or ingest-only; see DEPLOYMENT_SHOWCASE.md §6.
 apps/showcase/data/catalog.csv
 apps/showcase/data/.catalog-fetched.csv
+apps/showcase/data/.catalog-lexicon-state.json
+apps/showcase/data/.catalog-lexicon-slices.ndjson
+
+# Golden eval artefacts (generated locally / CI)
 apps/showcase/eval/results/

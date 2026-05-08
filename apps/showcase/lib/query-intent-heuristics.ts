@@ -38,6 +38,20 @@ export function heuristicCoolerCollateralNegations(): string[] {
   return ["cool bag", "printed cool bag", "lunch bag", "insulated", "cooler", "thermal bag"];
 }
 
+/** Gender + "wear" retail phrasing ("women pink wear") — apparel, not homeware. */
+export function genderFashionWearQuery(q: string): boolean {
+  const ql = q.trim().toLowerCase();
+  /** Seasonal "winter wear" / "summer wear" is handled by apparel parsers; avoids injecting generic fashion expansion + décor negations. */
+  if (/\b(?:winter|summer|spring|autumn|fall)\s+wear\b/u.test(ql)) return false;
+  const gender = /\b(women'?s|womens|for\s+women|\bwomen\b|men'?s|mens|for\s+men|\bmen\b|kids?\b|boys?\b|girls?\b)/u.test(
+    ql,
+  );
+  const fashionWear = /\bwear\b/u.test(ql) && !/\b(?:hair|eye|foot|face|neck|floor)\s+wear\b/u.test(ql);
+  return gender && fashionWear;
+}
+
+const GENDER_WEAR_HOME_NEGATIONS = ["candle", "vase", "duvet", "stoneware", "curtain", "cushion", "towel", "homeware"];
+
 /** Merge heuristic cues with LLM JSON augment (union negations / expansion; apparel_only OR). */
 export function mergeRetailHeuristicsIntoAugment(
   rawQuery: string,
@@ -48,10 +62,26 @@ export function mergeRetailHeuristicsIntoAugment(
 
   const party = occasionPartyEveningQuery(ql);
   const coolTrap = stylisticCoolLikely(ql);
+  const genderWear = genderFashionWearQuery(ql);
 
-  if (!party && !coolTrap) return llm ?? null;
+  if (!party && !coolTrap && !genderWear) return llm ?? null;
 
   const out: CsvSearchLlmAugment = { ...(llm ?? {}) };
+
+  if (genderWear) {
+    out.apparelOnly = true;
+    const namesHome = /\b(?:duvet|curtain|vase|candle|bedding|towel|homeware|stoneware|cushion)\b/u.test(
+      ql.toLowerCase(),
+    );
+    if (!namesHome) {
+      const neg = new Set([...(out.negatedTerms ?? []), ...GENDER_WEAR_HOME_NEGATIONS]);
+      out.negatedTerms = [...neg].slice(0, 14);
+    }
+    const extra =
+      "shirt blouse top tee dress skirt knitwear outerwear trousers jeans party casual outfit fashion women men";
+    const cur = (out.expandedLexical ?? "").trim();
+    out.expandedLexical = [cur, extra].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 400);
+  }
 
   if (party) {
     out.apparelOnly = true;

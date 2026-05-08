@@ -23,6 +23,9 @@
  *   SHOWCASE_CATALOG_FETCH_AUTH — optional Authorization header (e.g. Bearer …).
  *   SHOWCASE_CATALOG_FETCH_HEADERS — optional JSON merged into fetch headers.
  *   SHOWCASE_CATALOG_FETCH_TIMEOUT_MS — default 7200000 (large exports).
+ *   SHOWCASE_MERGE_LEXICON_SLICES — true|false (default true). When true, merge NDJSON from batch jobs into each product search_text.
+ *   SHOWCASE_LEXICON_SLICES_PATH — optional path to `.catalog-lexicon-slices.ndjson`.
+ *   SHOWCASE_LEXICON_MERGE_CHAR_CAP — max chars of merged lexicon (default 5500).
  */
 import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync, createWriteStream } from "node:fs";
 import { createReadStream } from "node:fs";
@@ -39,8 +42,41 @@ import {
   computeCategoryTargets,
   inferMerchCategorySlug,
 } from "../apps/showcase/lib/merch-category.mjs";
+import { parse } from "csv-parse";
 
 const __root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+const LEXICON_SLICES_DEFAULT = join(__root, "apps/showcase/data/.catalog-lexicon-slices.ndjson");
+
+/** Accumulated NDJSON slices from scripts/catalog-lexicon-batch.mjs — broadens searchable text globally. */
+function loadAccumulatedLexiconForSearch() {
+  const v = String(process.env.SHOWCASE_MERGE_LEXICON_SLICES ?? "true").toLowerCase();
+  if (v === "false" || v === "0") return "";
+
+  const p = String(process.env.SHOWCASE_LEXICON_SLICES_PATH ?? LEXICON_SLICES_DEFAULT).trim();
+  const path = isAbsolute(p) ? p : join(__root, p);
+  if (!existsSync(path)) return "";
+
+  const cap = parseInt(String(process.env.SHOWCASE_LEXICON_MERGE_CHAR_CAP ?? "5500"), 10);
+  const maxChars = Number.isFinite(cap) && cap > 200 ? Math.min(cap, 30_000) : 5500;
+
+  /** @type {Set<string>} */
+  const uniq = new Set();
+  const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+  for (const line of lines) {
+    try {
+      const o = JSON.parse(line);
+      const tk = typeof o.tokens === "string" ? o.tokens.toLowerCase() : "";
+      for (const piece of tk.split(/\s+/)) if (piece.length > 2) uniq.add(piece);
+    } catch {
+      /* ignore bad line */
+    }
+  }
+
+  let out = [...uniq].join(" ").replace(/\s+/g, " ").trim().toLowerCase();
+  if (out.length > maxChars) out = out.slice(0, maxChars);
+  return out.replace(/\s+$/u, "").trim();
+}
 
 const DEFAULT_CSV = join(__root, "apps/showcase/data/catalog.csv");
 const OUT_DIR = join(__root, "apps/showcase/lib");
@@ -655,6 +691,15 @@ async function main() {
     seats,
   } = await streamCsvToProducts(csvPath, maxRows, segment, merchOnlySlug);
 
+  const bulkLex = loadAccumulatedLexiconForSearch();
+  if (bulkLex) {
+    for (const p of products) {
+      const merged = `${String(p.search_text ?? "")} ${bulkLex}`;
+      p.search_text = merged.replace(/\s+/g, " ").trim().slice(0, 9500);
+    }
+    console.warn(`[demo-catalog] Merged accumulated batch lexicon (~${bulkLex.length} pooled chars) into search_text.`);
+  }
+
   mkdirSync(OUT_DIR, { recursive: true });
   const payload = {
     generatedAt: new Date().toISOString(),
@@ -672,6 +717,8 @@ async function main() {
       categorySeatPlan: stratified ? seats : null,
       segmentUnderfilled,
       rowsSeenInSegment: seenSegment,
+      lexiconMerged: Boolean(bulkLex),
+      lexiconMergedCharsApprox: bulkLex.length || 0,
       hint: merchOnlySlug
         ? `Merch-only ${merchOnlySlug}: ${products.length.toLocaleString()} SKUs (limit ${maxRows == null ? "none" : maxRows.toLocaleString()}). Full catalog: gateway + OpenSearch.`
         : maxRows != null

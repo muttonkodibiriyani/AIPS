@@ -12,10 +12,9 @@ export function Hero() {
             GitHub → Vercel · Gateway‑ready APIs
           </p>
           <h1 className="font-display text-[2.65rem] font-medium leading-[1.08] tracking-tight text-white sm:text-[3.05rem] lg:text-[3.45rem]">
-            Conversational&nbsp;
-            <span className="text-gradient-warm">product&nbsp;discovery</span>
+            <span className="text-gradient-warm">AI contextual search</span>
             <br />
-            merchants can integrate in days — not quarters.
+            leads product discovery — integrated in days, not quarters.
           </h1>
 
           <p className="mt-7 max-w-xl text-[1.065rem] leading-relaxed text-slate-400">
@@ -31,7 +30,7 @@ export function Hero() {
               className="inline-flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-br from-teal-500 to-teal-600 px-[1.5rem] py-4 text-[0.935rem] font-semibold tracking-tight text-slate-950 shadow-lg shadow-teal-500/[0.42] ring-1 ring-white/10 transition hover:brightness-[1.06] active:translate-y-[0.5px]"
             >
               <Sparkles className="size-[1.125rem]" strokeWidth={2} aria-hidden />
-              Try NL search demo
+              Try AI contextual search
             </Link>
             <Link
               href="#capabilities"

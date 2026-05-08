@@ -4,9 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ChevronDown, Cpu, Filter, Loader2, Search, Sparkles, Wand2 } from "lucide-react";
+import { ChevronDown, Cpu, Filter, Loader2, Search, Sparkles } from "lucide-react";
 
 import { beaconProductClick, beaconSearchEvent, getOrCreateSessionId } from "@/lib/client-analytics";
+import { discoveryWeightsFromBody } from "@/lib/discovery-weights";
 import { cn } from "@/lib/utils";
 
 type ProductHit = Record<string, unknown> & {
@@ -96,7 +97,7 @@ export function NLSearchDemo() {
             tenantId: tenant,
             locale,
             query: qText,
-            context: { market, lexicalWeight: 0.45, semanticWeight: 0.55 },
+            context: { market, ...discoveryWeightsFromBody({ context: {} }) },
             pagination: { from: 0, size: 12 },
           }),
         });
@@ -187,19 +188,22 @@ export function NLSearchDemo() {
     <div className="grid gap-8 lg:grid-cols-[1fr,minmax(200px,.34fr)]">
       <div className="rounded-[1.25rem] border border-white/10 bg-black/55 p-px shadow-[inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl [&>div]:rounded-[calc(1.25rem-1px)] [&>div]:bg-surface/93 [&>div]:p-8">
         <div>
-          <label className="sr-only">Natural-language query</label>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-violet-300/90">
+            AI contextual search
+          </p>
+          <label className="sr-only">AI contextual search query</label>
           <div className="relative">
-            <Wand2
+            <Sparkles
               aria-hidden
-              className="pointer-events-none absolute left-4 top-[1.1rem] size-5 text-teal-300/85"
+              className="pointer-events-none absolute left-4 top-[1.1rem] size-5 text-violet-300/90"
               strokeWidth={1.85}
             />
             <textarea
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Describe what shoppers are hunting for..."
+              placeholder="Context, occasion, who it is for… AI interprets alongside catalog keywords."
               rows={3}
-              className="block w-full resize-none rounded-xl border border-white/10 bg-slate-950/70 py-4 pl-[3.15rem] pr-4 font-[inherit] text-[1.035rem] text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-teal-500/45 focus:bg-slate-950/90"
+              className="block w-full resize-none rounded-xl border border-violet-500/20 bg-slate-950/70 py-4 pl-[3.15rem] pr-4 font-[inherit] text-[1.035rem] text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-violet-500/40 focus:bg-slate-950/90"
               dir={locale.startsWith("ar") ? "rtl" : "ltr"}
             />
           </div>
@@ -275,7 +279,7 @@ export function NLSearchDemo() {
             className="mt-7 inline-flex w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 py-4 text-[0.935rem] font-semibold tracking-tight text-slate-950 shadow-lg shadow-teal-500/35 disabled:opacity-55 sm:w-auto sm:min-w-[11.5rem] sm:px-14"
           >
             {loading ? <Loader2 className="size-5 animate-spin" /> : <Search className="size-[1.1rem]" strokeWidth={2.4} />}
-            Run search
+            Run contextual search
           </button>
 
           {error ? (
