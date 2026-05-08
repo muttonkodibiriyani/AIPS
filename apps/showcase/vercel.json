@@ -11,7 +11,7 @@
   ],
   "build": {
     "env": {
-      "SHOWCASE_DEMO_ROW_LIMIT": "200000",
+      "SHOWCASE_DEMO_ROW_LIMIT": "0",
       "NODE_OPTIONS": "--max-old-space-size=8192"
     }
   }

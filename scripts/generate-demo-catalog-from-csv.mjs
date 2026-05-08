@@ -27,9 +27,17 @@
  *   SHOWCASE_LEXICON_SLICES_PATH — optional path to `.catalog-lexicon-slices.ndjson`.
  *   SHOWCASE_LEXICON_MERGE_CHAR_CAP — max chars of merged lexicon (default 5500).
  */
-import { statSync, mkdirSync, writeFileSync, readFileSync, existsSync, createWriteStream } from "node:fs";
+import {
+  statSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  createWriteStream,
+  readdirSync,
+} from "node:fs";
 import { createReadStream } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { pipeline } from "node:stream/promises";
@@ -89,17 +97,52 @@ const DEFAULT_CAP_FOR_LARGE_CSV = 200_000;
 const DEFAULT_MERCH_SOFT_CAP = 200_000;
 
 const DEFAULT_FETCH_DEST = join(__root, "apps/showcase/data/.catalog-fetched.csv");
+const SHOWCASE_DATA_DIR = join(__root, "apps/showcase/data");
+
+/**
+ * Any merchant `.csv.gz` in data/ (not only `catalog.csv.gz`). Prefer standard name, else largest file.
+ */
+function findLocalGzipCatalogInDataDir(dataDir) {
+  if (!existsSync(dataDir)) return null;
+  /** @type {{ path: string; size: number }[]} */
+  const found = [];
+  for (const name of readdirSync(dataDir)) {
+    if (!name.endsWith(".csv.gz") || name.startsWith(".")) continue;
+    const p = join(dataDir, name);
+    try {
+      const st = statSync(p);
+      if (st.isFile()) found.push({ path: p, size: st.size });
+    } catch {
+      /* ignore */
+    }
+  }
+  if (found.length === 0) return null;
+  const preferred = found.find((f) => basename(f.path) === "catalog.csv.gz");
+  if (preferred) return preferred.path;
+  found.sort((a, b) => b.size - a.size);
+  const pick = found[0];
+  if (!pick) return null;
+  if (found.length > 1) {
+    console.warn("[demo-catalog] Multiple .csv.gz files in apps/showcase/data/ — using largest:", pick.path);
+  }
+  return pick.path;
+}
 
 function resolvedLocalCsvPath() {
   if (process.env.SHOWCASE_CATALOG_CSV && String(process.env.SHOWCASE_CATALOG_CSV).trim()) {
     const p = String(process.env.SHOWCASE_CATALOG_CSV).trim();
     return isAbsolute(p) ? p : join(__root, p);
   }
-  const gzFallback = join(__root, "apps/showcase/data/catalog.csv.gz");
+  const gzStandard = join(SHOWCASE_DATA_DIR, "catalog.csv.gz");
   if (existsSync(DEFAULT_CSV)) return DEFAULT_CSV;
-  if (existsSync(gzFallback)) {
+  if (existsSync(gzStandard)) {
     console.warn("[demo-catalog] Using apps/showcase/data/catalog.csv.gz — plain catalog.csv not found.");
-    return gzFallback;
+    return gzStandard;
+  }
+  const gzAny = findLocalGzipCatalogInDataDir(SHOWCASE_DATA_DIR);
+  if (gzAny) {
+    console.warn("[demo-catalog] Using gzip export:", gzAny.replace(__root + "\\", "").replace(__root + "/", ""));
+    return gzAny;
   }
   return DEFAULT_CSV;
 }
