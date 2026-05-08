@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import type { DemoCatalogFile } from "@/lib/csv-demo-search";
 import { searchCsvDemoCatalog } from "@/lib/csv-demo-search";
+import { discoveryWeightsFromBody } from "@/lib/discovery-weights";
 import { fetchLlmSearchAugmentTeam, fetchLlmSparseSearchSuggestions } from "@/lib/llm-intent";
 import { fuseLlmFirstProductRank } from "@/lib/search-fusion";
 import demoCatalog from "@/lib/demo-catalog.json";
