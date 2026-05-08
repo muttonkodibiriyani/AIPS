@@ -248,7 +248,8 @@ describe("intent: women pink wear + compact AED cap excludes home décor", () =>
   it('NL: "women pink wear under 120AED" surfaces apparel top, never home candle', () => {
     const q = "women pink wear under 120AED";
     const r = searchCsvDemoCatalog(cat, q, "demo", { from: 0, size: 10 });
-    expect(r.appliedFilters.priceConstraints.cap).toBe(120);
+    const priceConstraints = r.appliedFilters.priceConstraints as { cap?: number | null };
+    expect(priceConstraints.cap).toBe(120);
     expect(r.products.map((x) => x.product_id)).toContain("pink-top");
     expect(r.products.map((x) => x.product_id)).not.toContain("candle");
     expect(r.products[0]?.product_id).toBe("pink-top");
