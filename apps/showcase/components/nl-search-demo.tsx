@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { ChevronDown, Cpu, Filter, Loader2, Search, Sparkles } from "lucide-react";
 
@@ -62,6 +63,7 @@ function formatProductPrice(p: ProductHit, market: string): string | null {
 }
 
 export function NLSearchDemo() {
+  const pathname = usePathname() ?? "/";
   const [query, setQuery] = useState(NL_EXAMPLES[0].full);
   const [sessionId, setSessionId] = useState("");
   const [tenant, setTenant] = useState("demo-sl");
@@ -114,7 +116,11 @@ export function NLSearchDemo() {
         };
         setData(json);
         if (!res.ok) setError(json.message || json.error || `Search failed (${res.status})`);
-        else if (sessionId.length >= 4) {
+        else if (typeof window !== "undefined" && window.history?.replaceState && qText.length > 0) {
+          window.history.replaceState({}, "", `${pathname}?q=${encodeURIComponent(qText)}#experience`);
+        }
+
+        if (res.ok && sessionId.length >= 4) {
           const latencyMs = Math.round(
             (typeof performance !== "undefined" ? performance.now() : 0) - t0,
           );
@@ -148,7 +154,7 @@ export function NLSearchDemo() {
         setLoading(false);
       }
     },
-    [tenant, locale, query, market, sessionId],
+    [tenant, locale, query, market, sessionId, pathname],
   );
 
   useEffect(() => {
@@ -164,17 +170,6 @@ export function NLSearchDemo() {
     void search(q);
   }, [sessionId, search]);
 
-  useEffect(() => {
-    function onRun(e: Event) {
-      const detail = (e as CustomEvent<{ query?: string }>).detail?.query?.trim();
-      if (!detail) return;
-      setQuery(detail);
-      void search(detail);
-    }
-    window.addEventListener("showcase-run-search", onRun);
-    return () => window.removeEventListener("showcase-run-search", onRun);
-  }, [search]);
-
   const products = data?.products ?? [];
   const facets = data?.facets ?? {};
   const applied = data?.appliedFilters ?? {};
@@ -189,9 +184,9 @@ export function NLSearchDemo() {
       <div className="rounded-[1.25rem] border border-white/10 bg-black/55 p-px shadow-[inset_0_1px_0_rgba(255,255,255,.06)] backdrop-blur-2xl [&>div]:rounded-[calc(1.25rem-1px)] [&>div]:bg-surface/93 [&>div]:p-8">
         <div>
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-violet-300/90">
-            AI contextual search
+            Search (context + lexical + optional LLM intent)
           </p>
-          <label className="sr-only">AI contextual search query</label>
+          <label className="sr-only">Product search query</label>
           <div className="relative">
             <Sparkles
               aria-hidden
@@ -201,7 +196,12 @@ export function NLSearchDemo() {
             <textarea
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Context, occasion, who it is for… AI interprets alongside catalog keywords."
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || e.shiftKey) return;
+                e.preventDefault();
+                if (!loading) void search();
+              }}
+              placeholder="One box: trekking shoes under 100 AED · gifts · party outfit …"
               rows={3}
               className="block w-full resize-none rounded-xl border border-violet-500/20 bg-slate-950/70 py-4 pl-[3.15rem] pr-4 font-[inherit] text-[1.035rem] text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-violet-500/40 focus:bg-slate-950/90"
               dir={locale.startsWith("ar") ? "rtl" : "ltr"}
@@ -279,7 +279,7 @@ export function NLSearchDemo() {
             className="mt-7 inline-flex w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 py-4 text-[0.935rem] font-semibold tracking-tight text-slate-950 shadow-lg shadow-teal-500/35 disabled:opacity-55 sm:w-auto sm:min-w-[11.5rem] sm:px-14"
           >
             {loading ? <Loader2 className="size-5 animate-spin" /> : <Search className="size-[1.1rem]" strokeWidth={2.4} />}
-            Run contextual search
+            Search
           </button>
 
           {error ? (
