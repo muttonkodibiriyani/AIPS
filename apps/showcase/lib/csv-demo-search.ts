@@ -121,7 +121,15 @@ function stripPricePhrasesForTokenization(q: string): string {
 
 /** Common merchant typos → normalized forms for tokenization. */
 function fixRetailSearchTypos(q: string): string {
-  return q.replace(/\bshirtts\b/giu, "shirts");
+  let s = q;
+  const compact = /\b(?:tshirts?|tshirt)\b/giu;
+  s = s.replace(compact, "t-shirt");
+  s = s.replace(/\bsneekers\b/giu, "sneakers");
+  s = s.replace(/\bwinterjacke?t\b/giu, "winter jacket");
+  s = s.replace(/\bhoddies?\b/giu, "hoodies");
+  s = s.replace(/\bjackt\b/giu, "jacket");
+  s = s.replace(/\bshirtts\b/giu, "shirts");
+  return s;
 }
 
 /**
@@ -532,9 +540,23 @@ function scoreDoc(
   const titleAr = (p.title.ar || "").toLowerCase();
   const skuN = skuTokenNorm(String(p.sku || ""));
   const skuDisplay = String(p.sku || "").toLowerCase();
+  const prodIdNorm = String(p.product_id ?? "").toLowerCase().trim();
   const retrievalCat = p.attrs?.retrieval_category;
 
   let score = 0;
+
+  /** Demo-friendly: exact SKU / product id match (shoppers paste codes from ads or PDP). */
+  const compactPhrase = phrase.replace(/\s+/g, "").toLowerCase();
+  const compactSku = skuDisplay.replace(/\s+/g, "");
+  const compactPid = prodIdNorm.replace(/\s+/g, "");
+  if (phrase.length >= 4 && (phrase === skuDisplay || phrase === prodIdNorm || compactPhrase === compactSku || compactPhrase === compactPid)) {
+    score += 420;
+  } else if (qtok.length === 1 && qtok[0] && qtok[0].length >= 5) {
+    const t = qtok[0].toLowerCase();
+    if (t === skuDisplay || t === prodIdNorm || skuTokenNorm(t) === skuN || t === compactSku || t === compactPid) {
+      score += 400;
+    }
+  }
 
   if (phrase.length >= 3) {
     if (titleEn.includes(phrase) || titleAr.includes(phrase)) score += 48;
@@ -591,7 +613,9 @@ function scoreDoc(
     if (retrievalHints.has(retrievalCat)) {
       score += 44;
     } else if (!/^other$/u.test(retrievalCat)) {
-      score *= 0.28;
+      /** Multi-intent queries (e.g. party wear) list several slugs; penalize non-matches a bit less so good lexical hits still surface. */
+      const mult = retrievalHints.size >= 4 ? 0.5 : 0.3;
+      score *= mult;
     }
   }
 
@@ -755,6 +779,22 @@ export function searchCsvDemoCatalog(
     if (needle.length >= 3) {
       page = scored.filter((p) => p.search_text.includes(needle) || p.title.en.toLowerCase().includes(needle));
     }
+  }
+
+  if (qtok.length > 0 && page.length === 0) {
+    page = scored.filter((p) =>
+      qtok.some((t) => {
+        const tl = t.length;
+        if (tl < 3) return false;
+        const tt = t.toLowerCase();
+        return (
+          p.search_text.includes(tt) ||
+          p.title.en.toLowerCase().includes(tt) ||
+          (p.title.ar || "").toLowerCase().includes(tt) ||
+          skuTokenNorm(String(p.sku || "")).includes(tt.replace(/[^\p{L}\p{N}]/gu, ""))
+        );
+      }),
+    );
   }
 
   const total = page.length;
