@@ -1,6 +1,8 @@
 # Showcase deployment · GitHub, Vercel, self‑host, catalog upload
 
-Upstream repo: **[muttonkodibiriyani/AIPS](https://github.com/muttonkodibiriyani/AIPS)**  
+Upstream repo: **[muttonkodibiriyani/AIPS](https://github.com/muttonkodibiriyani/AIPS)**
+
+**Broader docs:** solution design, security, TRD, and stack-agnostic integration — **[docs/README.md](./docs/README.md)**.
 
 **Architecture note:** [`apps/showcase`](./apps/showcase) is **only** the Next.js UI. Search and ingestion (`services/*`, OpenSearch, MinIO, Postgres, Redis) run **outside Vercel** (Docker Compose, Railway, ECS, VM, …). Point `COMMERCE_GATEWAY_URL` at whatever hosts the Nest gateway over **HTTPS**.
 
@@ -54,7 +56,7 @@ The Next.js app and [`apps/showcase/vercel.json`](./apps/showcase/vercel.json) l
    |-----|---------|--------|
    | **`GEMINI_API_KEY`** or **`GOOGLE_GENERATIVE_AI_API_KEY`** | *(Google AI Studio)* | Primary Gemini call; **`GEMINI_MODEL`** defaults to **`gemini-2.0-flash`**. |
    | **`GEMINI_TEAM_MODEL_SECOND`** | e.g. **`gemini-2.5-flash-preview-05-20`** | Optional **second Gemini** intent call in parallel (same API key). |
-   | **`OPENROUTER_API_KEY`** | *(OpenRouter)* | Parallel / alternate extractor; **`OPENROUTER_MODEL`** defaults to **`google/gemini-2.0-flash-001:free`**. |
+   | **`OPENROUTER_API_KEY`** | *(OpenRouter)* | Parallel / alternate extractor; **`OPENROUTER_MODEL`** defaults to **`google/gemini-2.0-flash-001:free`**. Many “free tier” models (**DeepSeek**, **Llama**, **Claude Haiku**, …) are selectable by slug on OpenRouter. Optional second model in parallel: **`OPENROUTER_MODEL_SECOND`** (merged with Gemini / first OpenRouter JSON). |
    | **`OPENROUTER_HTTP_REFERRER`** | `https://your-showcase.vercel.app` | Optional `HTTP-Referer` header. |
    | **`SHOWCASE_LLM_INTENT`** | omit or **`true`** | **`false`** disables outbound LLMs. |
    | **`SHOWCASE_LLM_PARALLEL`** | omit or **`true`** | **`false`** runs **Gemini then OpenRouter** sequentially (fewer simultaneous API calls). |

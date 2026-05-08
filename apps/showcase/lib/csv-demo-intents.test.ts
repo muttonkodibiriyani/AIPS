@@ -195,6 +195,47 @@ describe("intent: women sneakers + lexical", () => {
   });
 });
 
+describe("intent: men's summer collection excludes linen bedding (NL noise)", () => {
+  const cat: DemoCatalogFile = {
+    products: [
+      P({
+        product_id: "duvet",
+        sku: "272598294",
+        title: { en: "Linen-blend double/king size duvet cover set", ar: "" },
+        attrs: {
+          customer_group: "Man | Woman",
+          retrieval_category: "home_living",
+          color: "Light pink",
+        },
+        pricing: { aed: 449 },
+        search_text:
+          "linen blend duvet cover set summer breathable lightweight bedroom light pink king holiday home living",
+      }),
+      P({
+        product_id: "shirt",
+        sku: "274000001",
+        title: { en: "Relaxed-fit linen resort shirt", ar: "" },
+        attrs: {
+          customer_group: ",Man,",
+          retrieval_category: "tops_shirts_blouses",
+          color: "Beige",
+        },
+        pricing: { aed: 129 },
+        search_text: "linen shirt relaxed fit men summer breathable resort vacation beige casual",
+      }),
+    ],
+  };
+
+  it('NL: "i wanted to know if there any summer collection for men" — no duvet grid flood', () => {
+    const q = "i wanted to know if there any summer collection for men";
+    const r = searchCsvDemoCatalog(cat, q, "demo", { from: 0, size: 10 });
+    expect(r.products.map((p) => p.product_id)).not.toContain("duvet");
+    expect(r.products[0]?.product_id).toBe("shirt");
+    expect(r.appliedFilters.apparelDominantHardFilter).toBe(false);
+    expect(r.appliedFilters.apparelDominantExcludeHomeOnly).toBe(true);
+  });
+});
+
 describe("SAMPLE_QUERIES (copy into manual QA with a real merch-only sandals build)", () => {
   it("documents strings for storefront smoke (assert true)", () => {
     const samples = [
@@ -206,6 +247,7 @@ describe("SAMPLE_QUERIES (copy into manual QA with a real merch-only sandals bui
       "boys shorts blue size 8",
       "organic cotton duvet ivory queen under 350 AED",
       "winter wear for men clothing blue and black",
+      "i wanted to know if there any summer collection for men",
     ];
     expect(samples.length).toBeGreaterThanOrEqual(6);
   });

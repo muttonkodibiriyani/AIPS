@@ -3,6 +3,7 @@ dist/
 build/
 .next/
 .turbo/
+*.tsbuildinfo
 *.pyc
 __pycache__/
 .python-version

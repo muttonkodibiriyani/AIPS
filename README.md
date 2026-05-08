@@ -4,7 +4,9 @@ Multi-tenant **hybrid commerce search** (lexical + vector), **agent API**, and *
 
 **Repository:** [github.com/muttonkodibiriyani/AIPS](https://github.com/muttonkodibiriyani/AIPS) · **Ship UI + Vercel:** [DEPLOYMENT_SHOWCASE.md](./DEPLOYMENT_SHOWCASE.md)
 
-See [TECHNICAL_PRD.md](./TECHNICAL_PRD.md) for architecture, API ownership, and **Milestone 1 acceptance criteria**.
+**Documentation set:** [docs/README.md](./docs/README.md) — solution architecture, security architecture, technical requirements (TRD), and commercial / stack-agnostic integration positioning.
+
+See [TECHNICAL_PRD.md](./TECHNICAL_PRD.md) for product scope, milestones, API ownership, and **Milestone 1 acceptance criteria**.
 
 ## Layout
 

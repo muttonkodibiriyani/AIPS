@@ -2,6 +2,8 @@
 
 This document is the product-facing source of truth for scope and acceptance tests. The machine-readable API contract lives in [`contracts/openapi.yaml`](contracts/openapi.yaml).
 
+**Formal documentation hub:** structured architecture, security, requirements (TRD), and GTM/integration narrative — [`docs/README.md`](docs/README.md).
+
 ## Product summary
 
 **Commerce AI** is a multi-tenant hybrid commerce search platform (lexical + vector, with faceting and business filters), an **agent API** on top of the same retrieval core, and **SDK packages** for integrators. The NestJS **api-gateway** is the public edge; FastAPI services own orchestration, ingestion, workers, analytics, and the agent.

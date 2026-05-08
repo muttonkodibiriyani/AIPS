@@ -190,6 +190,23 @@ export function retrievalCategoryHintsFromQuery(phrase: string, rawLower: string
   if (/\b(?:gym|yoga|workout|leggings?|sportswear|sport\s+racing)\b|\brunning\b.*\b(?:tights|leggings)/u.test(q)) {
     s.add("activewear");
   }
+
+  const genderForMerch =
+    /\b(men'?s|mens|for\s+men|\bmen\b|\bman\b|women'?s|womens|for\s+women|\bwomen\b|kids?\b)\b/u.test(q);
+  const namesHomeProduct = /\b(?:duvet|bedding|bed\s*sheet|towel|cushion|curtain|vase|stoneware)\b/u.test(q);
+  if (
+    genderForMerch &&
+    /\b(summer|spring)\b/u.test(q) &&
+    (/\bcollection\b/u.test(q) ||
+      /\b(fashion|outfits?|styles?|arrivals?|new\s+in|lookbook|clothes|clothing|apparel|wear)\b/u.test(q)) &&
+    !namesHomeProduct
+  ) {
+    s.add("tops_tees");
+    s.add("tops_shirts_blouses");
+    s.add("bottoms_shorts");
+    s.add("footwear_sandals_slides");
+    s.add("bags_accessories");
+  }
   if (/\b(?:backpack|\bbag\b|wallet|belt|scarf|\bcap\b|beanie|\bhat\b|sunglasses|jewellery|jewelry|keyring)\b/u.test(q)) {
     s.add("bags_accessories");
   }
@@ -216,12 +233,31 @@ export function apparelDominantQuery(raw: string): boolean {
   const genderWithGarmentType =
     /\b(?:men|women|mens|womens|\bman\b|\bwoman\b|kids?\b)/u.test(ql) && garmentType;
 
+  const genderSegment =
+    /\b(men'?s|mens|for\s+men|\bmen\b|\bman\b|women'?s|womens|for\s+women|\bwomen\b|kids?\b|boys?\b|girls?\b)/u.test(
+      ql,
+    );
+  /** Retail phrasing: “summer collection for men” is apparel, not bedding that happens to say “linen”. */
+  const seasonalCollectionWithGender =
+    /\b(summer|spring|autumn|fall)\b/u.test(ql) && /\bcollection\b/u.test(ql) && genderSegment;
+  const summerEditForGender =
+    /\b(summer|spring)\b/u.test(ql) &&
+    genderSegment &&
+    /\b(collection|arrivals?|new\s+in|lookbook|range|edit|styles?|fashion|outfits?|clothes|clothing|apparel|wear)\b/u.test(
+      ql,
+    );
+
   const homeCue = /\b(?:vase|cushion|duvet|blackout|curtain|candle\b|stoneware|homeware|bed\s*linen)\b/u.test(ql);
   const asksAccessorySKU =
     /\b(?:belt\b|wallet|crossbody|handbag|keyring|cufflinks|loafers|sandals\b|slides?\b)/u.test(ql);
 
   return (
-    (explicitApparelWord || seasonalWarm || winterOutfitCue || genderWithGarmentType) &&
+    (explicitApparelWord ||
+      seasonalWarm ||
+      winterOutfitCue ||
+      genderWithGarmentType ||
+      seasonalCollectionWithGender ||
+      summerEditForGender) &&
     !homeCue &&
     !asksAccessorySKU
   );
@@ -229,7 +265,8 @@ export function apparelDominantQuery(raw: string): boolean {
 
 /** True when shopper names clothing / layered winter — restrict grid to SOFT_APPAREL buckets (drops belts / curtains noise). */
 function strictSoftApparelFilter(raw: string): boolean {
-  return /\b(?:clothes|clothing|apparel)\b|\bwinter\s+wear\b/u.test(raw.trim().toLowerCase());
+  const ql = raw.trim().toLowerCase();
+  return /\b(?:clothes|clothing|apparel)\b|\bwinter\s+wear\b/u.test(ql);
 }
 
 const SOFT_APPAREL_SLUG = new Set([
@@ -514,7 +551,12 @@ function scoreDoc(
     score += 26;
   }
 
-  if (/\bsummer\b/u.test(queryLower) && /\b(summer|breathable|lightweight|beach|holiday|linen|straw|pool)\b/u.test(hay)) {
+  /** Summer vibe — do not reward “linen” on home/bedding when the shopper asked for seasonal fashion. */
+  if (
+    /\bsummer\b/u.test(queryLower) &&
+    retrievalCat !== "home_living" &&
+    /\b(summer|breathable|lightweight|beach|holiday|linen|straw|pool)\b/u.test(hay)
+  ) {
     score += 12;
   }
 

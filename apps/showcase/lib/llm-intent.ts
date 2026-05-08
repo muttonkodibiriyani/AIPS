@@ -17,7 +17,7 @@ Schema:
 
 Rules:
 - gender: null unless the shopper clearly targets a segment.
-- apparel_only: true only when they want wearable apparel/footwear and not home décor.
+- apparel_only: true when they want wearable fashion (tops, bottoms, shoes, accessories worn on the body)—including phrases like "summer collection for men/women", "new season for men", seasonal edits/lookbooks **unless** they mention home/bedding (duvet, sheets, curtains, cushions, towels, vases).
 - expanded_keywords: extra EN tokens (synonyms, garment types, fabrics, occasions) not already in the query — space-separated, lowercase, no prices.
 - merch_slugs: subset of EXACTLY these tokens only: ${SLUG_LINE}
 - colors: extra colour words (lowercase) implied by the query beyond literal tokens.
@@ -194,13 +194,14 @@ async function callGemini(userQuery: string, signal: AbortSignal): Promise<CsvSe
   return callGeminiWithModel(userQuery, model, signal);
 }
 
-async function callOpenRouter(userQuery: string, signal: AbortSignal): Promise<CsvSearchLlmAugment | null> {
+async function callOpenRouterWithModel(
+  userQuery: string,
+  model: string,
+  signal: AbortSignal,
+): Promise<CsvSearchLlmAugment | null> {
   const key = (process.env.OPENROUTER_API_KEY ?? "").trim() || null;
-  if (!key) return null;
+  if (!key || !model.trim()) return null;
 
-  const model =
-    (process.env.OPENROUTER_MODEL ?? "google/gemini-2.0-flash-001:free").trim() ||
-    "google/gemini-2.0-flash-001:free";
   const referer = (process.env.OPENROUTER_HTTP_REFERRER ?? "https://commerce-ai-showcase.local").trim();
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -212,7 +213,7 @@ async function callOpenRouter(userQuery: string, signal: AbortSignal): Promise<C
       "X-Title": "Commerce AI Showcase",
     },
     body: JSON.stringify({
-      model,
+      model: model.trim(),
       temperature: 0.1,
       max_tokens: 512,
       messages: [
@@ -233,6 +234,13 @@ async function callOpenRouter(userQuery: string, signal: AbortSignal): Promise<C
   return parseModelJson(text);
 }
 
+async function callOpenRouter(userQuery: string, signal: AbortSignal): Promise<CsvSearchLlmAugment | null> {
+  const model =
+    (process.env.OPENROUTER_MODEL ?? "google/gemini-2.0-flash-001:free").trim() ||
+    "google/gemini-2.0-flash-001:free";
+  return callOpenRouterWithModel(userQuery, model, signal);
+}
+
 export type LlmTeamResult = {
   merged: CsvSearchLlmAugment | null;
   /** Non-null partial intents collected before merge */
@@ -242,7 +250,9 @@ export type LlmTeamResult = {
 
 /**
  * Runs multiple intent extractors in parallel when enabled (Gemini primary, optional `GEMINI_TEAM_MODEL_SECOND`,
- * OpenRouter). Merges JSON cues so offline lexical search gets a richer, consensus-style augment.
+ * OpenRouter plus optional `OPENROUTER_MODEL_SECOND`). Merges JSON cues so offline lexical search gets a richer, consensus-style augment.
+ *
+ * Use OpenRouter model slugs for extra providers (e.g. `deepseek/deepseek-chat`, `anthropic/claude-3-haiku`): set `OPENROUTER_MODEL` / `OPENROUTER_MODEL_SECOND`.
  *
  * `SHOWCASE_LLM_PARALLEL=false` → sequential Gemini then OpenRouter (fewer concurrent API calls).
  */
@@ -266,6 +276,7 @@ export async function fetchLlmSearchAugmentTeam(query: string): Promise<LlmTeamR
 
   const parallelOn = process.env.SHOWCASE_LLM_PARALLEL !== "false";
   const secondaryModel = (process.env.GEMINI_TEAM_MODEL_SECOND ?? "").trim();
+  const openRouterSecond = (process.env.OPENROUTER_MODEL_SECOND ?? "").trim();
 
   try {
     if (!parallelOn) {
@@ -285,7 +296,10 @@ export async function fetchLlmSearchAugmentTeam(query: string): Promise<LlmTeamR
       tasks.push(callGemini(q, ctl.signal));
       if (secondaryModel) tasks.push(callGeminiWithModel(q, secondaryModel, ctl.signal));
     }
-    if (hasOr) tasks.push(callOpenRouter(q, ctl.signal));
+    if (hasOr) {
+      tasks.push(callOpenRouter(q, ctl.signal));
+      if (openRouterSecond) tasks.push(callOpenRouterWithModel(q, openRouterSecond, ctl.signal));
+    }
 
     if (tasks.length === 0) return { merged: null, memberCount: 0, parallel: true };
 
