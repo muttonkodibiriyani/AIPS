@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import type { DemoCatalogFile } from "@/lib/csv-demo-search";
 import { searchCsvDemoCatalog } from "@/lib/csv-demo-search";
-import { fetchLlmSearchAugmentTeam } from "@/lib/llm-intent";
+import { fetchLlmSearchAugmentTeam, fetchLlmSparseSearchSuggestions } from "@/lib/llm-intent";
 import { fuseLlmFirstProductRank } from "@/lib/search-fusion";
 import demoCatalog from "@/lib/demo-catalog.json";
 
@@ -10,7 +10,46 @@ type ProductCard = Record<string, unknown>;
 
 const csvBundle = demoCatalog as DemoCatalogFile;
 
-async function csvSearchResponse(body: Record<string, unknown>) {
+type CsvSearchPayload = Record<string, unknown>;
+
+function sparseHintThreshold(): number {
+  const raw = parseInt(String(process.env.SHOWCASE_SPARSE_HINT_MIN_RESULTS ?? ""), 10);
+  if (Number.isFinite(raw) && raw >= 0 && raw <= 50) return raw;
+  return 5;
+}
+
+async function withSparseSuggestions(
+  query: string,
+  sparseLlmEligible: boolean,
+  total: number,
+  payload: CsvSearchPayload,
+): Promise<CsvSearchPayload> {
+  const minHits = sparseHintThreshold();
+  if (!sparseLlmEligible || total >= minHits) {
+    return payload;
+  }
+
+  const phrases = await fetchLlmSparseSearchSuggestions(query);
+  if (phrases.length === 0) return payload;
+
+  const baseInterp = payload.interpretation;
+  const interpretation =
+    typeof baseInterp === "object" && baseInterp !== null && !Array.isArray(baseInterp)
+      ? { ...baseInterp, llmSparseHints: { applied: true, count: phrases.length, minResults: minHits } }
+      : { llmSparseHints: { applied: true, count: phrases.length, minResults: minHits } };
+
+  return {
+    ...payload,
+    interpretation,
+    llmSparseSuggestions: {
+      phrases,
+      trigger: "few_results",
+      minResults: minHits,
+    },
+  };
+}
+
+async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<CsvSearchPayload> {
   const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
   const query = typeof body.query === "string" ? body.query : "";
   const pagination =
@@ -21,14 +60,15 @@ async function csvSearchResponse(body: Record<string, unknown>) {
   const from = pagination.from ?? 0;
   const size = Math.min(pagination.size ?? 24, 100);
 
-  const llmEnabled =
-    process.env.SHOWCASE_LLM_INTENT !== "false" &&
-    (Boolean((process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim()) ||
-      Boolean((process.env.OPENROUTER_API_KEY ?? "").trim()));
+  const llmKeysConfigured =
+    Boolean((process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim()) ||
+    Boolean((process.env.OPENROUTER_API_KEY ?? "").trim());
+
+  const llmEnabled = process.env.SHOWCASE_LLM_INTENT !== "false" && llmKeysConfigured;
+  const sparseLlmEligible = process.env.SHOWCASE_SPARSE_LLM_HINTS !== "false" && llmKeysConfigured;
 
   const fusionEnabled = process.env.SHOWCASE_SEARCH_FUSION !== "false" && llmEnabled;
 
-  /** Parallel LLM lane + pure-lexical lane merged with LLM-weighted ranking first */
   if (fusionEnabled) {
     const capRaw = parseInt(String(process.env.SHOWCASE_SEARCH_FUSE_CAP ?? ""), 10);
     const fuseWindow =
@@ -43,7 +83,7 @@ async function csvSearchResponse(body: Record<string, unknown>) {
 
     if (!merged) {
       const r = searchCsvDemoCatalog(csvBundle, query, tenantId, { from, size }, {});
-      return NextResponse.json({
+      return withSparseSuggestions(query, sparseLlmEligible, r.total, {
         products: r.products,
         facets: r.facets,
         total: r.total,
@@ -79,7 +119,7 @@ async function csvSearchResponse(body: Record<string, unknown>) {
     const fusedList = fuseLlmFirstProductRank(llmWide.products, lexWide.products);
     const products = fusedList.slice(from, from + size);
 
-    return NextResponse.json({
+    return withSparseSuggestions(query, sparseLlmEligible, fusedList.length, {
       products,
       facets: llmWide.facets,
       total: fusedList.length,
@@ -116,7 +156,7 @@ async function csvSearchResponse(body: Record<string, unknown>) {
     llmAugment: team.merged ?? undefined,
   });
 
-  return NextResponse.json({
+  return withSparseSuggestions(query, sparseLlmEligible, r.total, {
     products: r.products,
     facets: r.facets,
     total: r.total,
@@ -138,10 +178,7 @@ async function csvSearchResponse(body: Record<string, unknown>) {
   });
 }
 
-/**
- * Offline / stub payload when COMMERCE_GATEWAY_URL is unset and SHOWCASE_DEMO_SEARCH=true and no CSV rows.
- */
-function mockSearchResponse(body: Record<string, unknown>) {
+function buildMockSearchPayload(body: Record<string, unknown>): CsvSearchPayload {
   const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
   const query = typeof body.query === "string" ? body.query : "";
   const q = query.toLowerCase();
@@ -201,7 +238,7 @@ function mockSearchResponse(body: Record<string, unknown>) {
           return hay.includes(q) || /\b(blank|anything|everything|catalog|sku)\b/i.test(query);
         });
 
-  return NextResponse.json({
+  return {
     products,
     facets: {
       colors: [
@@ -221,13 +258,9 @@ function mockSearchResponse(body: Record<string, unknown>) {
       hint: "Hardcoded stub. Add apps/showcase/data/catalog.csv or COMMERCE_GATEWAY_URL for real data.",
     },
     interpretation: { lexicalWeight: 1, semanticWeight: 0 },
-  });
+  };
 }
 
-/**
- * Server-side proxy: keeps COMMERCE_API_KEY off the browser bundle.
- * Without gateway: prefers CSV-generated catalog (`prebuild`), then SHOWCASE_DEMO_SEARCH stub.
- */
 export async function POST(req: Request) {
   const baseRaw = process.env.COMMERCE_GATEWAY_URL;
   const demoStub = process.env.SHOWCASE_DEMO_SEARCH === "true";
@@ -244,10 +277,16 @@ export async function POST(req: Request) {
 
   if (!base) {
     if (csvRows > 0) {
-      return await csvSearchResponse(body);
+      const t0 = Date.now();
+      const payload = await buildCsvSearchPayload(body);
+      const serverLatencyMs = Date.now() - t0;
+      return NextResponse.json({ ...payload, meta: { serverLatencyMs, path: "csv_catalog" } });
     }
     if (demoStub) {
-      return mockSearchResponse(body);
+      const t0 = Date.now();
+      const payload = buildMockSearchPayload(body);
+      const serverLatencyMs = Date.now() - t0;
+      return NextResponse.json({ ...payload, meta: { serverLatencyMs, path: "demo_stub" } });
     }
     return NextResponse.json(
       {
@@ -271,6 +310,7 @@ export async function POST(req: Request) {
 
   const stripped = base.replace(/\/$/, "");
 
+  const t0 = Date.now();
   try {
     const upstream = await fetch(`${stripped}/v1/search`, {
       method: "POST",
@@ -280,8 +320,17 @@ export async function POST(req: Request) {
       next: { revalidate: 0 },
     });
 
-    const payload = await upstream.json().catch(() => ({}));
-    return NextResponse.json(payload, { status: upstream.status });
+    const payload = (await upstream.json().catch(() => ({}))) as Record<string, unknown>;
+    const serverLatencyMs = Date.now() - t0;
+    return NextResponse.json({
+      ...payload,
+      meta: {
+        ...(typeof payload.meta === "object" && payload.meta !== null ? (payload.meta as object) : {}),
+        serverLatencyMs,
+        upstreamStatus: upstream.status,
+        path: "gateway",
+      },
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "upstream_error";
     return NextResponse.json({ error: "gateway_unreachable", message: msg, products: [] }, { status: 502 });

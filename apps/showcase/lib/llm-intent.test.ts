@@ -2,7 +2,31 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DemoCatalogFile, ProductRecord } from "./csv-demo-search";
 import { searchCsvDemoCatalog } from "./csv-demo-search";
-import { fetchLlmSearchAugment, fetchLlmSearchAugmentTeam, llmAugmentFromJson, mergeLlmAugments } from "./llm-intent";
+import { fetchLlmSearchAugment, fetchLlmSearchAugmentTeam, llmAugmentFromJson, mergeLlmAugments, sparseQueriesFromModelJson } from "./llm-intent";
+
+describe("sparseQueriesFromModelJson", () => {
+  it("normalises and caps five concrete queries", () => {
+    const q = sparseQueriesFromModelJson({
+      queries: [
+        "Organic cotton duvet cover queen pale grey",
+        "dupe",
+        "  linen shirt men relaxed short sleeve beige  ",
+        "Organic cotton duvet cover queen pale grey",
+        " stoneware vase white ",
+        "x".repeat(200),
+      ],
+    });
+    expect(q.length).toBeLessThanOrEqual(5);
+    expect(q[0]?.includes("duvet")).toBe(true);
+    expect(q.every((s) => s.length >= 4 && s.length <= 140)).toBe(true);
+  });
+
+  it("returns empty for malformed payloads", () => {
+    expect(sparseQueriesFromModelJson(null)).toEqual([]);
+    expect(sparseQueriesFromModelJson({})).toEqual([]);
+    expect(sparseQueriesFromModelJson({ searches: ["a"] })).toEqual([]);
+  });
+});
 
 describe("llmAugmentFromJson", () => {
   it("maps recognised fields", () => {

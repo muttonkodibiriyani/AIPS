@@ -326,3 +326,207 @@ export async function fetchLlmSearchAugment(query: string): Promise<CsvSearchLlm
   const r = await fetchLlmSearchAugmentTeam(query);
   return r.merged;
 }
+
+/** Pattern from sparse-result LLM query expansion (e‑com search UX): suggest concrete follow-up searches. */
+const SPARSE_SUGGESTIONS_SYSTEM = `You help shoppers search a broad fashion + home e‑commerce catalog (English product titles).
+Lexical search returned very few or zero useful matches for their vague or indirect wording.
+
+Return ONE JSON object only — no markdown, no commentary.
+Schema: { "queries": string[] }
+
+Rules:
+- Provide exactly 5 distinct strings (each roughly 3–12 words unless the shopper was extremely short).
+- Each string must read like something a shopper would paste into the product search box (concrete product types, fabrics, silhouettes).
+- Prefer mass‑market wording that could match realistic SKUs. Do not invent proprietary brand names or celebrity labels.
+- Diversify intents (different product angles), grounded in plausible interpretations of what they might mean.
+- If the shopper hinted a gender, corridor, colour, budget, room, or season, honour that when relevant.
+- Do not mirror the shopper's exact verbatim query more than once in the five strings; paraphrase and specialize.
+`;
+
+type SuggestCacheEntry = { expiresAt: number; phrases: string[] };
+const sparseSuggestCache = new Map<string, SuggestCacheEntry>();
+
+function sparseSuggestCacheKey(query: string): string {
+  return query
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .slice(0, 500);
+}
+
+function sparseSuggestCacheTtlMs(): number {
+  const raw = parseInt(String(process.env.SHOWCASE_LLM_SUGGEST_CACHE_TTL_MS ?? ""), 10);
+  if (Number.isFinite(raw) && raw >= 0 && raw <= 86_400_000) return raw;
+  return 120_000;
+}
+
+/** Validates model JSON `{ "queries": [...] }` into display-safe search strings. */
+export function sparseQueriesFromModelJson(parsed: unknown): string[] {
+  if (!parsed || typeof parsed !== "object") return [];
+  const o = parsed as Record<string, unknown>;
+  const arr = o.queries;
+  if (!Array.isArray(arr)) return [];
+  const out: string[] = [];
+  for (const x of arr) {
+    const s = String(x ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+    if (s.length >= 4 && s.length <= 140) out.push(s);
+  }
+  return dedupeSparsePhrases(out).slice(0, 5);
+}
+
+function dedupeSparsePhrases(phrases: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of phrases) {
+    const k = p.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}
+
+function parseSparseSuggestionsFromText(text: string): string[] {
+  try {
+    const stripped = stripCodeFence(text);
+    return sparseQueriesFromModelJson(JSON.parse(stripped));
+  } catch {
+    return [];
+  }
+}
+
+function filterAgainstOriginal(query: string, phrases: string[]): string[] {
+  const qNorm = query.trim().toLowerCase().replace(/\s+/g, " ");
+  return phrases.filter((p) => p.trim().toLowerCase().replace(/\s+/g, " ") !== qNorm);
+}
+
+async function callGeminiSparseSuggestions(userQuery: string, signal: AbortSignal): Promise<string[]> {
+  const key =
+    (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim() || null;
+  if (!key) return [];
+
+  const model = (process.env.GEMINI_MODEL ?? "gemini-2.0-flash").trim();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model,
+  )}:generateContent?key=${encodeURIComponent(key)}`;
+
+  const body = {
+    contents: [
+      {
+        parts: [
+          {
+            text: `${SPARSE_SUGGESTIONS_SYSTEM}\n\nShopper search box text:\n${userQuery}`,
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.55,
+      maxOutputTokens: 280,
+      responseMimeType: "application/json",
+    },
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) return [];
+
+  const data = (await res.json().catch(() => null)) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  } | null;
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof text !== "string") return [];
+  return parseSparseSuggestionsFromText(text);
+}
+
+async function callOpenRouterSparseSuggestions(userQuery: string, signal: AbortSignal): Promise<string[]> {
+  const key = (process.env.OPENROUTER_API_KEY ?? "").trim() || null;
+  if (!key) return [];
+
+  const model =
+    (process.env.OPENROUTER_SPARSE_MODEL ?? process.env.OPENROUTER_MODEL ?? "google/gemini-2.0-flash-001:free")
+      .trim() || "google/gemini-2.0-flash-001:free";
+  const referer = (process.env.OPENROUTER_HTTP_REFERRER ?? "https://commerce-ai-showcase.local").trim();
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+      "HTTP-Referer": referer,
+      "X-Title": "Commerce AI Showcase",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.55,
+      max_tokens: 280,
+      messages: [
+        { role: "system", content: SPARSE_SUGGESTIONS_SYSTEM },
+        { role: "user", content: userQuery },
+      ],
+      response_format: { type: "json_object" },
+    }),
+    signal,
+  });
+  if (!res.ok) return [];
+
+  const data = (await res.json().catch(() => null)) as {
+    choices?: { message?: { content?: string } }[];
+  } | null;
+  const text = data?.choices?.[0]?.message?.content;
+  if (typeof text !== "string") return [];
+  return parseSparseSuggestionsFromText(text);
+}
+
+/**
+ * When lexical search returns too few hits, generate alternative search phrases (Medium-style “LLM suggestions” pattern).
+ * Uses a short-lived in-process cache; set `SHOWCASE_LLM_SUGGEST_CACHE_TTL_MS=0` to disable caching.
+ */
+export async function fetchLlmSparseSearchSuggestions(query: string): Promise<string[]> {
+  if (process.env.SHOWCASE_SPARSE_LLM_HINTS === "false") return [];
+  const q = query.trim();
+  if (q.length < 3) return [];
+
+  const hasGemini = Boolean(
+    (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim(),
+  );
+  const hasOr = Boolean((process.env.OPENROUTER_API_KEY ?? "").trim());
+  if (!hasGemini && !hasOr) return [];
+
+  const cacheKey = sparseSuggestCacheKey(q);
+  const ttl = sparseSuggestCacheTtlMs();
+  if (ttl > 0) {
+    const hit = sparseSuggestCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit.phrases;
+  }
+
+  const ms = Number(process.env.SHOWCASE_LLM_TIMEOUT_MS ?? "10000");
+  const timeout = Number.isFinite(ms) && ms >= 2000 && ms <= 25000 ? ms : 10000;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeout);
+
+  try {
+    let phrases: string[] = [];
+    if (hasGemini) {
+      phrases = await callGeminiSparseSuggestions(q, ctl.signal);
+    }
+    if (phrases.length === 0 && hasOr) {
+      phrases = await callOpenRouterSparseSuggestions(q, ctl.signal);
+    }
+    phrases = filterAgainstOriginal(q, dedupeSparsePhrases(phrases)).slice(0, 5);
+    if (ttl > 0 && phrases.length > 0) {
+      sparseSuggestCache.set(cacheKey, { expiresAt: Date.now() + ttl, phrases });
+    }
+    return phrases;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(t);
+  }
+}

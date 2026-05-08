@@ -9,6 +9,7 @@ This folder is the **structured documentation set** for the **Commerce AI** plat
 | [TECHNICAL_REQUIREMENTS.md](./TECHNICAL_REQUIREMENTS.md) | Product, engineering, procurement | Formal requirements (functional + non-functional) traceable to code and OpenAPI |
 | [COMMERCIAL_POSITIONING_AND_INTEGRATION.md](./COMMERCIAL_POSITIONING_AND_INTEGRATION.md) | Sales, partners, customer architects | Value proposition and **stack-agnostic** integration story |
 | [SEARCH_QUALITY_RUBRIC.md](./SEARCH_QUALITY_RUBRIC.md) | Product, relevance owners | How to talk about quality honestly; benchmark requirements; party/slang heuristics narrative |
+| [RETRIEVAL_STACK_VALIDATION.md](./RETRIEVAL_STACK_VALIDATION.md) | Engineering | BM25 / vectors / FAISS·Qdrant·Pinecone / rerank — **what is implemented vs roadmap** |
 
 **Related (repository root):**
 

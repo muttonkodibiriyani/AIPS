@@ -153,12 +153,12 @@ export function retrievalCategoryHintsFromQuery(phrase: string, rawLower: string
   const q = `${phrase} ${rawLower}`.toLowerCase();
   const s = new Set<string>();
 
-  if (/\b(sandal|flip[-\s]*flops?|slides?|mules)\b/u.test(q)) s.add("footwear_sandals_slides");
+  if (/\b(sandals?|flip[-\s]*flops?|slides?|mules)\b/u.test(q)) s.add("footwear_sandals_slides");
   if (/\b(?:sneaker|trainers?|running\s+shoes?|walking\s+shoes?)\b/u.test(q)) s.add("footwear_sneakers");
   if (
     /\b(?:boots?|loafers?|(?:high\s*)?heels?|pumps|oxford\s+shoes|slip\s*[-]?\s*on\s+shoes|espadrilles?)\b|\b\d+\s*shoes\b/u.test(q)
   ) {
-    if (!/\bsandal\b/u.test(q) && !s.has("footwear_sneakers")) s.add("footwear_boots_other");
+    if (!/\bsandals?\b/u.test(q) && !s.has("footwear_sneakers")) s.add("footwear_boots_other");
   }
 
   if (/\b(?:t[\s'-]*shirts?|tshirts?|graphic\s*tee|crew\s*neck\s*tee|fitted\s+tee)\b|\bpolo\s*t-?shirt/u.test(q)) {
@@ -569,6 +569,19 @@ function scoreDoc(
     }
   }
 
+  /**
+   * Sandal/slide intent: `apparelDominantQuery` is false when `asksAccessorySKU` matches, so home & shirts
+   * still compete on “men + summer”. Strongly prefer `footwear_sandals_slides` for those queries.
+   */
+  if (
+    /\b(?:sandals?|flip[-\s]*flops?|slides?|mules)\b/u.test(queryLower) &&
+    retrievalHints.has("footwear_sandals_slides") &&
+    retrievalCat &&
+    retrievalCat !== "footwear_sandals_slides"
+  ) {
+    score *= retrievalCat === "home_living" ? 0.06 : 0.2;
+  }
+
   if (genderWant) {
     score *= genderLexicalFactor(p.attrs, genderWant);
   }
@@ -578,10 +591,14 @@ function scoreDoc(
   }
 
   /** Summer vibe — do not reward “linen” on home/bedding when the shopper asked for seasonal fashion. */
+  const explicitOpenFootwearCue =
+    /\b(?:sandals?|flip[-\s]*flops?|slides?|mules)\b/u.test(queryLower) &&
+    retrievalHints.has("footwear_sandals_slides");
   if (
     /\bsummer\b/u.test(queryLower) &&
     retrievalCat !== "home_living" &&
-    /\b(summer|breathable|lightweight|beach|holiday|linen|straw|pool)\b/u.test(hay)
+    /\b(summer|breathable|lightweight|beach|holiday|linen|straw|pool)\b/u.test(hay) &&
+    !(explicitOpenFootwearCue && retrievalCat !== "footwear_sandals_slides")
   ) {
     score += 12;
   }

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "description": "Deterministic offline eval over eval/fixtures/unified-catalog.ts — run: npm run eval:golden -w @commerce-ai/showcase",
+  "cases": [
+    {
+      "id": "party-wear-stylistic-cool",
+      "query": "i need a party wear suggest that looks cool for summer",
+      "forbidSubstringInTitlesTopN": { "n": 5, "substrings": ["cool bag"] },
+      "expectTopProductId": "midi-dress",
+      "requireMinTotal": 1
+    },
+    {
+      "id": "summer-collection-men",
+      "query": "i wanted to know if there any summer collection for men",
+      "forbidSubstringInTitlesTopN": { "n": 6, "substrings": ["duvet", "linen-blend double"] },
+      "expectTopProductId": "shirt",
+      "requireMinTotal": 1
+    },
+    {
+      "id": "winter-men-clothing-colours",
+      "query": "winter wear for men clothing i need blue and black",
+      "expectTopProductId": "coat",
+      "requireMinTotal": 1
+    },
+    {
+      "id": "men-sandals-summer",
+      "query": "men sandals for summer",
+      "expectAnyProductIdInTopN": { "n": 5, "productIds": ["m1", "high", "cheap"] },
+      "forbidSubstringInTitlesTopN": { "n": 3, "substrings": ["duvet cover", "resort shirt"] },
+      "requireMinTotal": 1
+    },
+    {
+      "id": "women-pink-sneakers",
+      "query": "women pink sneakers trainers summer",
+      "expectTopProductId": "w-shoe",
+      "requireMinTotal": 1
+    },
+    {
+      "id": "white-vase-under-200",
+      "query": "white vase under 200 AED",
+      "requireAnySubstringInTitlesTopN": { "n": 4, "substrings": ["vase", "stoneware"] },
+      "requireMinTotal": 1
+    },
+    {
+      "id": "sandals-price-floor",
+      "query": "men sandals worth 200AED above",
+      "expectTopProductId": "high",
+      "requireMinTotal": 1
+    }
+  ]
+}

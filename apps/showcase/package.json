@@ -11,7 +11,8 @@
     "build": "next build",
     "start": "next start -p 3100",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval:golden": "npx tsx eval/run-golden-eval.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -31,6 +32,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.7.2",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "tsx": "^4.19.2"
   }
 }

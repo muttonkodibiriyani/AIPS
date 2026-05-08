@@ -1,0 +1,37 @@
+name: Showcase golden eval
+
+on:
+  push:
+    paths:
+      - "apps/showcase/**"
+      - "scripts/**"
+  pull_request:
+    paths:
+      - "apps/showcase/**"
+  workflow_dispatch: {}
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/showcase
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install (repo root workspaces)
+        run: npm install
+        working-directory: ${{ github.workspace }}
+
+      - name: Vitest (+ golden eval test)
+        run: npm run test -w @commerce-ai/showcase
+
+      - name: Golden eval CLI
+        run: npm run eval:golden -w @commerce-ai/showcase

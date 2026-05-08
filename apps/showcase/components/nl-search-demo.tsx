@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ChevronDown, Cpu, Filter, Loader2, Search, Wand2 } from "lucide-react";
+import { ChevronDown, Cpu, Filter, Loader2, Search, Sparkles, Wand2 } from "lucide-react";
 
+import { beaconProductClick, beaconSearchEvent, getOrCreateSessionId } from "@/lib/client-analytics";
 import { cn } from "@/lib/utils";
 
 type ProductHit = Record<string, unknown> & {
@@ -61,6 +62,7 @@ function formatProductPrice(p: ProductHit, market: string): string | null {
 
 export function NLSearchDemo() {
   const [query, setQuery] = useState(NL_EXAMPLES[0].full);
+  const [sessionId, setSessionId] = useState("");
   const [tenant, setTenant] = useState("demo-sl");
   const [market, setMarket] = useState("AE");
   const [locale, setLocale] = useState("en-AE");
@@ -70,16 +72,22 @@ export function NLSearchDemo() {
     products?: ProductHit[];
     facets?: Record<string, { key?: string; count?: number }[]>;
     total?: number;
+    meta?: { serverLatencyMs?: number; path?: string };
+    interpretation?: Record<string, unknown>;
     appliedFilters?: Record<string, unknown>;
+    llmSparseSuggestions?: { phrases?: string[]; trigger?: string; minResults?: number };
     error?: string;
     message?: string;
   } | null>(null);
+
+  const urlBootstrapped = useRef(false);
 
   const search = useCallback(
     async (queryOverride?: string) => {
       const qText = (queryOverride ?? query).trim();
       setLoading(true);
       setError(null);
+      const t0 = typeof performance !== "undefined" ? performance.now() : 0;
       try {
         const res = await fetch("/api/search", {
           method: "POST",
@@ -96,12 +104,42 @@ export function NLSearchDemo() {
           products?: ProductHit[];
           facets?: Record<string, { key?: string; count?: number }[]>;
           total?: number;
+          meta?: { serverLatencyMs?: number; path?: string };
+          interpretation?: Record<string, unknown>;
           appliedFilters?: Record<string, unknown>;
+          llmSparseSuggestions?: { phrases?: string[]; trigger?: string; minResults?: number };
           error?: string;
           message?: string;
         };
         setData(json);
         if (!res.ok) setError(json.message || json.error || `Search failed (${res.status})`);
+        else if (sessionId.length >= 4) {
+          const latencyMs = Math.round(
+            (typeof performance !== "undefined" ? performance.now() : 0) - t0,
+          );
+          const logFull =
+            typeof process !== "undefined" &&
+            process.env.NEXT_PUBLIC_SHOWCASE_ANALYTICS_LOG_QUERIES === "true";
+          void beaconSearchEvent({
+            sessionId,
+            tenantId: tenant,
+            queryLen: qText.length,
+            ...(logFull ? { queryText: qText } : {}),
+            latencyMs,
+            totalHits: typeof json.total === "number" ? json.total : 0,
+            sparseLlmHintCount: json.llmSparseSuggestions?.phrases?.length ?? 0,
+            topSkus: (json.products ?? [])
+              .slice(0, 8)
+              .map((p) => String(p.sku ?? p.product_id ?? ""))
+              .filter(Boolean),
+            fusion: {
+              searchFusion: json.appliedFilters?.searchFusion,
+              interpretation: json.interpretation,
+            },
+            serverLatencyMs: typeof json.meta?.serverLatencyMs === "number" ? json.meta.serverLatencyMs : null,
+            clientTs: new Date().toISOString(),
+          });
+        }
       } catch {
         setError("Network error — is the gateway reachable?");
         setData(null);
@@ -109,17 +147,21 @@ export function NLSearchDemo() {
         setLoading(false);
       }
     },
-    [tenant, locale, query, market],
+    [tenant, locale, query, market, sessionId],
   );
 
   useEffect(() => {
+    setSessionId(getOrCreateSessionId());
+  }, []);
+
+  useEffect(() => {
+    if (sessionId.length < 4 || urlBootstrapped.current) return;
     const q = new URLSearchParams(window.location.search).get("q")?.trim();
     if (!q) return;
+    urlBootstrapped.current = true;
     setQuery(q);
     void search(q);
-    // Bootstrap only — header search drives follow-up queries via showcase-run-search
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionId, search]);
 
   useEffect(() => {
     function onRun(e: Event) {
@@ -135,6 +177,11 @@ export function NLSearchDemo() {
   const products = data?.products ?? [];
   const facets = data?.facets ?? {};
   const applied = data?.appliedFilters ?? {};
+  const sparseHintsRaw = data?.llmSparseSuggestions?.phrases;
+  const sparseHints =
+    Array.isArray(sparseHintsRaw) && sparseHintsRaw.length > 0
+      ? sparseHintsRaw.filter((x) => typeof x === "string" && x.trim().length >= 3).slice(0, 8)
+      : [];
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr,minmax(200px,.34fr)]">
@@ -294,6 +341,37 @@ export function NLSearchDemo() {
           ) : null}
         </div>
 
+        {sparseHints.length > 0 ? (
+          <div
+            role="region"
+            aria-label="Suggested searches from language model"
+            className="mb-6 rounded-xl border border-violet-500/35 bg-violet-500/[0.07] px-4 py-3.5"
+          >
+            <div className="mb-2.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-violet-200/90">
+              <Sparkles className="size-3.5 shrink-0 text-violet-300" aria-hidden strokeWidth={2} />
+              Low lexical matches — refined suggestions
+            </div>
+            <p className="mb-3 max-w-[46rem] text-[12px] leading-relaxed text-slate-400">
+              Tap a phrase to search again with a more catalog-shaped query.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {sparseHints.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    setQuery(s);
+                    void search(s);
+                  }}
+                  className="max-w-full rounded-full border border-violet-400/45 bg-slate-950/85 px-3 py-1.5 text-left text-[12px] font-medium leading-snug text-violet-100 transition hover:border-violet-400/70 hover:bg-violet-950/35"
+                >
+                  <span className="line-clamp-2">{s}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {!loading && products.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/15 bg-black/35 py-16 text-center">
             <p className="text-sm font-medium text-slate-300">Indexing path clear — hydrate this tenant&apos;s SKU base.</p>
@@ -327,6 +405,20 @@ export function NLSearchDemo() {
                   <Link
                     href={href}
                     className="group flex overflow-hidden rounded-xl border border-white/10 bg-slate-950/95 transition hover:border-teal-500/40 hover:bg-slate-900/95"
+                    onClick={() => {
+                      if (sessionId.length < 4) return;
+                      const logFull =
+                        typeof process !== "undefined" &&
+                        process.env.NEXT_PUBLIC_SHOWCASE_ANALYTICS_LOG_QUERIES === "true";
+                      void beaconProductClick({
+                        sessionId,
+                        tenantId: tenant,
+                        sku: String(p.sku ?? ""),
+                        productId: pid,
+                        position: idx,
+                        ...(logFull ? { queryContext: query.trim() } : {}),
+                      });
+                    }}
                   >
                   <div className="relative h-[132px] w-[126px] shrink-0 overflow-hidden border-r border-white/10 bg-black/55">
                     {src ? (
