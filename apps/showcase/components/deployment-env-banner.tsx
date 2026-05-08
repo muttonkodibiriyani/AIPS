@@ -10,7 +10,12 @@ type Health = {
   csvCatalogRows?: number;
   csvCatalogTruncated?: boolean;
   csvCatalogRowCap?: number | null;
+  csvCatalogSegment?: string | null;
   offlineSearchAvailable?: boolean;
+  llmIntentConfigured?: boolean;
+  allowLexicalOnly?: boolean;
+  llmIntentStrict?: boolean;
+  csvLlmIntentRequired?: boolean;
   gitCommit?: string | null;
 };
 
@@ -54,6 +59,30 @@ export function DeploymentEnvBanner() {
 
   if (health.liveSearchAvailable) return null;
 
+  if (health.csvLlmIntentRequired) {
+    return (
+      <div
+        role="alert"
+        className="border-b border-rose-500/35 bg-rose-950/88 px-4 py-2.5 text-center text-[13px] text-rose-50/95"
+      >
+        <p className="inline-flex flex-wrap items-center justify-center gap-2">
+          <AlertTriangle className="size-4 shrink-0 text-rose-300" aria-hidden />
+          <span>
+            <strong>CSV search needs model keys</strong> — NL intent is enforced for this demo. Add{" "}
+            <code className="rounded bg-black/35 px-1.5 py-0.5 font-mono text-[11px]">GEMINI_API_KEY</code> or{" "}
+            <code className="rounded bg-black/35 px-1.5 py-0.5 font-mono text-[11px]">OPENROUTER_API_KEY</code> (Vercel →
+            Env), redeploy; or intentionally set{" "}
+            <code className="rounded bg-black/35 px-1.5 py-0.5 font-mono text-[11px]">
+              SHOWCASE_ALLOW_LEXICAL_ONLY=true
+            </code>
+            .
+          </span>
+        </p>
+        <DeployRev sha={health.gitCommit} />
+      </div>
+    );
+  }
+
   if (health.offlineSearchAvailable && (health.csvCatalogRows ?? 0) > 0) {
     return (
       <div
@@ -72,8 +101,11 @@ export function DeploymentEnvBanner() {
                 (large file). Use gateway + ingest for the full catalog.
               </>
             ) : null}{" "}
-            Replace <span className="font-mono text-[11px]">apps/showcase/data/catalog.csv</span> with your file, push,
-            redeploy.
+            Put <span className="font-mono text-[11px]">catalog.csv</span> or{" "}
+            <span className="font-mono text-[11px]">catalog.csv.gz</span> under{" "}
+            <span className="font-mono text-[11px]">apps/showcase/data/</span> (or{" "}
+            <span className="font-mono text-[11px]">SHOWCASE_CATALOG_URL</span>
+            ); push or trigger deploy hook, redeploy.
           </span>
         </p>
         <DeployRev sha={health.gitCommit} />

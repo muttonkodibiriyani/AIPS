@@ -52,6 +52,15 @@ export function genderFashionWearQuery(q: string): boolean {
 
 const GENDER_WEAR_HOME_NEGATIONS = ["candle", "vase", "duvet", "stoneware", "curtain", "cushion", "towel", "homeware"];
 
+/** Hiking / trail / gym + footwear → push correct merch buckets + expansion tokens. */
+export function footwearActivityQuery(q: string): boolean {
+  const ql = q.trim().toLowerCase();
+  const shoeWord = /\b(shoes?|sneakers?|trainers?|footwear|boots?|sandals?|slides?|mules)\b/u.test(ql);
+  const activity =
+    /\b(trekking|hiking|trail|walking|gym|training|workout|yoga|running|jogging|athletic|sports?)\b/u.test(ql);
+  return shoeWord && activity;
+}
+
 /** Merge heuristic cues with LLM JSON augment (union negations / expansion; apparel_only OR). */
 export function mergeRetailHeuristicsIntoAugment(
   rawQuery: string,
@@ -63,10 +72,23 @@ export function mergeRetailHeuristicsIntoAugment(
   const party = occasionPartyEveningQuery(ql);
   const coolTrap = stylisticCoolLikely(ql);
   const genderWear = genderFashionWearQuery(ql);
+  const footwearAct = footwearActivityQuery(ql);
 
-  if (!party && !coolTrap && !genderWear) return llm ?? null;
+  if (!party && !coolTrap && !genderWear && !footwearAct) return llm ?? null;
 
   const out: CsvSearchLlmAugment = { ...(llm ?? {}) };
+
+  if (footwearAct) {
+    const slugSet = new Set(out.merchSlugs ?? []);
+    if (/\bsandal|\bslide|\bmule\b/u.test(ql)) slugSet.add("footwear_sandals_slides");
+    else if (/\bboots?\b/u.test(ql)) slugSet.add("footwear_boots_other");
+    else slugSet.add("footwear_sneakers");
+    out.merchSlugs = [...slugSet].filter(Boolean).slice(0, 10);
+    const extra =
+      "hiking shoe trail runner sneaker athletic mesh cushioning grip outdoor breathable durable walking training trek";
+    const cur = (out.expandedLexical ?? "").trim();
+    out.expandedLexical = [cur, extra].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 400);
+  }
 
   if (genderWear) {
     out.apparelOnly = true;

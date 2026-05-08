@@ -95,6 +95,12 @@ function resolvedLocalCsvPath() {
     const p = String(process.env.SHOWCASE_CATALOG_CSV).trim();
     return isAbsolute(p) ? p : join(__root, p);
   }
+  const gzFallback = join(__root, "apps/showcase/data/catalog.csv.gz");
+  if (existsSync(DEFAULT_CSV)) return DEFAULT_CSV;
+  if (existsSync(gzFallback)) {
+    console.warn("[demo-catalog] Using apps/showcase/data/catalog.csv.gz — plain catalog.csv not found.");
+    return gzFallback;
+  }
   return DEFAULT_CSV;
 }
 

@@ -1,4 +1,4 @@
-# Triggers a fresh Vercel production build so prebuild can STREAM_CSV from SHOWCASE_CATALOG_URL
+# Triggers a fresh Vercel production build hourly (and on push / manual) so prebuild can STREAM_CSV from SHOWCASE_CATALOG_URL
 # and regenerate ~200k demo SKUs (never stored in Git). Add repository secret VERCEL_DEPLOY_HOOK_URL
 # from Vercel → Project → Settings → Git → Deploy Hooks.
 
@@ -16,7 +16,7 @@ on:
       - ".github/workflows/showcase-deploy-hook.yml"
   workflow_dispatch: {}
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 * * * *"
 
 jobs:
   redeploy:

@@ -13,6 +13,22 @@ const csvBundle = demoCatalog as DemoCatalogFile;
 
 type CsvSearchPayload = Record<string, unknown>;
 
+/** Gemini or OpenRouter must be configured for mandatory intent (unless lexical escape hatch). */
+function llmKeysConfigured(): boolean {
+  return (
+    Boolean((process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim()) ||
+    Boolean((process.env.OPENROUTER_API_KEY ?? "").trim())
+  );
+}
+
+function canCallOutboundLlm(): boolean {
+  return process.env.SHOWCASE_LLM_INTENT !== "false" && llmKeysConfigured();
+}
+
+type CsvBuildResult =
+  | { ok: true; payload: CsvSearchPayload }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
 function sparseHintThreshold(): number {
   const raw = parseInt(String(process.env.SHOWCASE_SPARSE_HINT_MIN_RESULTS ?? ""), 10);
   if (Number.isFinite(raw) && raw >= 0 && raw <= 50) return raw;
@@ -50,7 +66,34 @@ async function withSparseSuggestions(
   };
 }
 
-async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<CsvSearchPayload> {
+const LLM_UNAVAIL_MESSAGE =
+  "LLM intent could not run (timeouts, quota, or empty model JSON). Retry shortly or widen SHOWCASE_LLM_TIMEOUT_MS.";
+
+/** When strict, every substantive query must yield merged model intent (not just a live HTTP call). */
+function assertMandatoryIntentPresent(
+  team: Awaited<ReturnType<typeof fetchLlmSearchAugmentTeam>>,
+  queryTrimmed: string,
+): CsvBuildResult | null {
+  const strict = process.env.SHOWCASE_LLM_INTENT_STRICT !== "false";
+  if (!strict || queryTrimmed.length < 2) return null;
+  if (!canCallOutboundLlm()) return null;
+  if (team.merged) return null;
+
+  return {
+    ok: false,
+    status: 503,
+    body: {
+      error: "llm_intent_unavailable",
+      message: LLM_UNAVAIL_MESSAGE,
+      hint: "Set SHOWCASE_ALLOW_LEXICAL_ONLY=true for offline CI, or SHOWCASE_LLM_INTENT_STRICT=false to rank with lexical+heuristic when models fail.",
+      products: [],
+      facets: {},
+      total: 0,
+    },
+  };
+}
+
+async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<CsvBuildResult> {
   const tenantId = typeof body.tenantId === "string" ? body.tenantId : "demo-sl";
   const query = typeof body.query === "string" ? body.query : "";
   const discoveryWeights = discoveryWeightsFromBody(body);
@@ -62,15 +105,40 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
   const from = pagination.from ?? 0;
   const size = Math.min(pagination.size ?? 24, 100);
 
-  const llmKeysConfigured =
-    Boolean((process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "").trim()) ||
-    Boolean((process.env.OPENROUTER_API_KEY ?? "").trim());
+  const outbound = canCallOutboundLlm();
 
-  const llmEnabled = process.env.SHOWCASE_LLM_INTENT !== "false" && llmKeysConfigured;
-  const sparseLlmEligible = process.env.SHOWCASE_SPARSE_LLM_HINTS !== "false" && llmKeysConfigured;
+  /** Hybrid LLM+lexical lane: only when outbound LLMs are allowed */
+  const fusionEnabled = process.env.SHOWCASE_SEARCH_FUSION !== "false" && outbound;
+  const sparseLlmEligible = process.env.SHOWCASE_SPARSE_LLM_HINTS !== "false" && outbound;
 
-  /** Hybrid LLM+lexical lane: on whenever keys exist (intent still gated inside augment fetch). */
-  const fusionEnabled = process.env.SHOWCASE_SEARCH_FUSION !== "false" && llmKeysConfigured;
+  if (!outbound) {
+    const r = searchCsvDemoCatalog(csvBundle, query, tenantId, { from, size }, {});
+    return {
+      ok: true,
+      payload: await withSparseSuggestions(query, false, r.total, {
+        products: r.products,
+        facets: r.facets,
+        total: r.total,
+        appliedFilters: {
+          ...r.appliedFilters,
+          hint: "Lexical + deterministic heuristics only (SHOWCASE_ALLOW_LEXICAL_ONLY or no LLM keys). Configure GEMINI_API_KEY or OPENROUTER_API_KEY for mandatory model intent.",
+          searchFusion: { attempted: false, applied: false, reason: "llm_disabled_or_no_keys" },
+        },
+        interpretation: {
+          ...discoveryWeights,
+          contextualSearchLedByLlm: false,
+          llmIntentMandatory: false,
+          llmIntentApplied: false,
+          llmTeamMembersSucceeded: 0,
+          rankingNote:
+            "Heuristic + lexical only — set API keys unless SHOWCASE_ALLOW_LEXICAL_ONLY=true intentionally.",
+          fusion: false,
+        },
+      }),
+    };
+  }
+
+  const llmEnabled = outbound;
 
   if (fusionEnabled) {
     const capRaw = parseInt(String(process.env.SHOWCASE_SEARCH_FUSE_CAP ?? ""), 10);
@@ -82,38 +150,45 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
       Promise.resolve(searchCsvDemoCatalog(csvBundle, query, tenantId, { from: 0, size: fuseWindow }, {})),
     ]);
 
-    const merged = team.merged;
+    const block = assertMandatoryIntentPresent(team, query.trim());
+    if (block) return block;
 
+    const merged = team.merged;
     if (!merged) {
       const r = searchCsvDemoCatalog(csvBundle, query, tenantId, { from, size }, {});
-      return withSparseSuggestions(query, sparseLlmEligible, r.total, {
-        products: r.products,
-        facets: r.facets,
-        total: r.total,
-        appliedFilters: {
-          ...r.appliedFilters,
-          hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
-          searchFusion: {
-            attempted: true,
-            applied: false,
-            fuseWindow,
+      return {
+        ok: true,
+        payload: await withSparseSuggestions(query, sparseLlmEligible, r.total, {
+          products: r.products,
+          facets: r.facets,
+          total: r.total,
+          appliedFilters: {
+            ...r.appliedFilters,
+            hint: "CSV catalog (apps/showcase/data/catalog.csv or .csv.gz → prebuild). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
+            searchFusion: {
+              attempted: true,
+              applied: false,
+              fuseWindow,
+              llmTeamMembersSucceeded: team.memberCount,
+              llmParallel: team.parallel,
+              reason: "intent_unavailable_non_strict",
+            },
+          },
+          interpretation: {
+            ...discoveryWeights,
+            contextualSearchLedByLlm: false,
+            llmIntentMandatory: false,
+            rankingNote:
+              "Fusion lane fell back to lexical — model returned no mergeable JSON (SHOWCASE_LLM_INTENT_STRICT=false).",
+            fusion: false,
+            llmLexicalLanePriority: false,
+            llmIntentAttempted: llmEnabled,
+            llmIntentApplied: false,
             llmTeamMembersSucceeded: team.memberCount,
             llmParallel: team.parallel,
-            reason: "intent_unavailable",
           },
-        },
-        interpretation: {
-          ...discoveryWeights,
-          contextualSearchLedByLlm: false,
-          rankingNote: "Pure lexical fallback (LLM augment unavailable).",
-          fusion: false,
-          llmLexicalLanePriority: false,
-          llmIntentAttempted: llmEnabled,
-          llmIntentApplied: false,
-          llmTeamMembersSucceeded: team.memberCount,
-          llmParallel: team.parallel,
-        },
-      });
+        }),
+      };
     }
 
     const llmWide = searchCsvDemoCatalog(csvBundle, query, tenantId, { from: 0, size: fuseWindow }, {
@@ -123,67 +198,80 @@ async function buildCsvSearchPayload(body: Record<string, unknown>): Promise<Csv
     const fusedList = fuseLlmFirstProductRank(llmWide.products, lexWide.products);
     const products = fusedList.slice(from, from + size);
 
-    return withSparseSuggestions(query, sparseLlmEligible, fusedList.length, {
-      products,
-      facets: llmWide.facets,
-      total: fusedList.length,
-      appliedFilters: {
-        ...llmWide.appliedFilters,
-        hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
-        searchFusion: {
-          attempted: true,
-          applied: true,
-          fuseWindow,
-          llmLaneHits: llmWide.products.length,
-          lexicalLaneHits: lexWide.products.length,
-          fusedUnique: fusedList.length,
+    return {
+      ok: true,
+      payload: await withSparseSuggestions(query, sparseLlmEligible, fusedList.length, {
+        products,
+        facets: llmWide.facets,
+        total: fusedList.length,
+        appliedFilters: {
+          ...llmWide.appliedFilters,
+          hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
+          searchFusion: {
+            attempted: true,
+            applied: true,
+            fuseWindow,
+            llmLaneHits: llmWide.products.length,
+            lexicalLaneHits: lexWide.products.length,
+            fusedUnique: fusedList.length,
+            llmTeamMembersSucceeded: team.memberCount,
+            llmParallel: team.parallel,
+          },
+        },
+        interpretation: {
+          ...discoveryWeights,
+          contextualSearchLedByLlm: true,
+          fusion: true,
+          llmIntentMandatory: true,
+          llmLexicalLanePriority: true,
+          pureLexicalLaneMerged: true,
+          rankingNote:
+            "Contextual-first: model intent + deterministic heuristics fused into lexical scores; lexical tail merged.",
+          llmIntentAttempted: llmEnabled,
+          llmIntentApplied: true,
           llmTeamMembersSucceeded: team.memberCount,
           llmParallel: team.parallel,
         },
-      },
-      interpretation: {
-        ...discoveryWeights,
-        contextualSearchLedByLlm: true,
-        fusion: true,
-        llmLexicalLanePriority: true,
-        pureLexicalLaneMerged: true,
-        rankingNote: "Contextual-first: AI-augmented hits ranked ahead, then lexical tail merged.",
-        llmIntentAttempted: llmEnabled,
-        llmIntentApplied: true,
-        llmTeamMembersSucceeded: team.memberCount,
-        llmParallel: team.parallel,
-      },
-    });
+      }),
+    };
   }
 
   const team = await fetchLlmSearchAugmentTeam(query);
+
+  const block = assertMandatoryIntentPresent(team, query.trim());
+  if (block) return block;
+
   const r = searchCsvDemoCatalog(csvBundle, query, tenantId, { from, size }, {
     llmAugment: team.merged ?? undefined,
   });
 
-  return withSparseSuggestions(query, sparseLlmEligible, r.total, {
-    products: r.products,
-    facets: r.facets,
-    total: r.total,
-    appliedFilters: {
-      ...r.appliedFilters,
-      hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
-      searchFusion: { attempted: false, applied: false, reason: "fusion_disabled" },
-    },
-    interpretation: {
-      ...discoveryWeights,
-      contextualSearchLedByLlm: Boolean(team.merged),
-      fusion: false,
-      rankingNote: team.merged
-        ? "LLM augment fused into lexical scores (fusion off)."
-        : "Lexical only — add API keys for hybrid contextual ranking.",
-      llmLexicalLanePriority: Boolean(team.merged),
-      llmIntentAttempted: llmEnabled,
-      llmIntentApplied: Boolean(team.merged),
-      llmTeamMembersSucceeded: team.memberCount,
-      llmParallel: team.parallel,
-    },
-  });
+  return {
+    ok: true,
+    payload: await withSparseSuggestions(query, sparseLlmEligible, r.total, {
+      products: r.products,
+      facets: r.facets,
+      total: r.total,
+      appliedFilters: {
+        ...r.appliedFilters,
+        hint: "CSV catalog (apps/showcase/data/catalog.csv → build). Large files are capped at build time — use ingest + COMMERCE_GATEWAY_URL for the full multimillion-SKU corpus with BM25/ANN.",
+        searchFusion: { attempted: false, applied: false, reason: "fusion_disabled" },
+      },
+      interpretation: {
+        ...discoveryWeights,
+        contextualSearchLedByLlm: Boolean(team.merged),
+        llmIntentMandatory: outbound,
+        fusion: false,
+        rankingNote: team.merged
+          ? "Model intent merged into lexical + heuristic scorer (fusion off)."
+          : "Lexical + heuristics only — model returned empty JSON.",
+        llmLexicalLanePriority: Boolean(team.merged),
+        llmIntentAttempted: llmEnabled,
+        llmIntentApplied: Boolean(team.merged),
+        llmTeamMembersSucceeded: team.memberCount,
+        llmParallel: team.parallel,
+      },
+    }),
+  };
 }
 
 function buildMockSearchPayload(body: Record<string, unknown>): CsvSearchPayload {
@@ -288,13 +376,35 @@ export async function POST(req: Request) {
   }
 
   const base = typeof baseRaw === "string" ? baseRaw.trim() : "";
+  const allowLexicalOnly = process.env.SHOWCASE_ALLOW_LEXICAL_ONLY === "true";
+
+  if (!base && csvRows > 0 && !allowLexicalOnly && !canCallOutboundLlm()) {
+    return NextResponse.json(
+      {
+        error: "llm_intent_required",
+        message:
+          "Model intent is required for CSV demo search: set GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY or OPENROUTER_API_KEY on the server.",
+        hint: "Local/CI without keys: set SHOWCASE_ALLOW_LEXICAL_ONLY=true in env.",
+        products: [],
+        facets: {},
+        total: 0,
+      },
+      { status: 503 },
+    );
+  }
 
   if (!base) {
     if (csvRows > 0) {
       const t0 = Date.now();
-      const payload = await buildCsvSearchPayload(body);
+      const built = await buildCsvSearchPayload(body);
+      if (!built.ok) {
+        return NextResponse.json(
+          { ...built.body, meta: { serverLatencyMs: Date.now() - t0, path: "csv_catalog_intent_blocked" } },
+          { status: built.status },
+        );
+      }
       const serverLatencyMs = Date.now() - t0;
-      return NextResponse.json({ ...payload, meta: { serverLatencyMs, path: "csv_catalog" } });
+      return NextResponse.json({ ...built.payload, meta: { serverLatencyMs, path: "csv_catalog" } });
     }
     if (demoStub) {
       const t0 = Date.now();
@@ -306,7 +416,7 @@ export async function POST(req: Request) {
       {
         error: "demo_unconfigured",
         message:
-          "Add product rows to apps/showcase/data/catalog.csv (commit + redeploy), or set SHOWCASE_DEMO_SEARCH=true, or configure COMMERCE_GATEWAY_URL.",
+          "Add product rows under apps/showcase/data/ (catalog.csv, catalog.csv.gz, or SHOWCASE_CATALOG_CSV), deploy, or set SHOWCASE_DEMO_SEARCH=true, or configure COMMERCE_GATEWAY_URL.",
         products: [],
         facets: {},
         total: 0,

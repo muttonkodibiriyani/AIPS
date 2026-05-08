@@ -113,10 +113,14 @@ export function NLSearchDemo() {
           llmSparseSuggestions?: { phrases?: string[]; trigger?: string; minResults?: number };
           error?: string;
           message?: string;
+          hint?: string;
         };
         setData(json);
-        if (!res.ok) setError(json.message || json.error || `Search failed (${res.status})`);
-        else if (typeof window !== "undefined" && window.history?.replaceState && qText.length > 0) {
+        if (!res.ok) {
+          const base = json.message || json.error || `Search failed (${res.status})`;
+          const extra = typeof json.hint === "string" && json.hint.length > 0 ? ` ${json.hint}` : "";
+          setError(`${base}${extra}`);
+        } else if (typeof window !== "undefined" && window.history?.replaceState && qText.length > 0) {
           window.history.replaceState({}, "", `${pathname}?q=${encodeURIComponent(qText)}#experience`);
         }
 
