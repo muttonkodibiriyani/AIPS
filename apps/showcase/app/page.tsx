@@ -1,13 +1,5 @@
 import Link from "next/link";
-import {
-  Globe2,
-  Layers3,
-  Search,
-  Sparkles,
-  Timer,
-  Database,
-  ShieldCheck,
-} from "lucide-react";
+import { BarChart3, Globe2, Layers3, Radar, Search, Sparkles, Timer, Database, ShieldCheck } from "lucide-react";
 
 import { CatalogPrepPanel } from "@/components/catalog-prep-panel";
 import { Hero } from "@/components/hero";
@@ -18,33 +10,43 @@ import { cn } from "@/lib/utils";
 const features = [
   {
     icon: Sparkles,
-    title: "Natural‑language retrieval",
-    body: "Customers describe intent in plain language; the engine merges lexical precision with semantic understanding and structured facets.",
+    title: "How customers discover products",
+    body: "Shoppers type full sentences; deterministic parsers pull out price, colours, gender, and merch hints. Optional LLM JSON augments synonyms and category slugs, then results fuse with the raw lexical lane so SKUs stay discoverable even when wording is vague.",
+  },
+  {
+    icon: Radar,
+    title: "No dead ends on sparse runs",
+    body: "When the catalog returns very few lexical hits, a second LLM pass proposes concrete follow‑up search phrases (clickable chips). Shoppers recover from “I want something sweet for guests” style wording without leaving search.",
+  },
+  {
+    icon: Layers3,
+    title: "Production path: OpenSearch gateway",
+    body: "Wire COMMERCE_GATEWAY_URL to your deployed API: BM25‑strong matching for SKUs and titles, facet filters, and room to add dense vectors / KNN as you scale. The UI here mirrors the same POST /v1/search contract.",
+  },
+  {
+    icon: BarChart3,
+    title: "Search & click telemetry",
+    body: "Server beacons record result counts, client and server latency, top SKUs shown, sparse‑hint exposure, and optional product clicks — stdout, webhook, or off — so you can track zero‑hit rate and engagement after deploy.",
   },
   {
     icon: Globe2,
     title: "Multilingual storefronts",
-    body: "English & Arabic lexical analyzers plus shared embedding space roadmap — tuned for bilingual GCC retail catalogs.",
-  },
-  {
-    icon: Layers3,
-    title: "Hybrid BM25 + vector‑ready index",
-    body: "OpenSearch‑backed: keyword strength for SKU/brand, scalable ANN hooks for conversational and vague queries.",
+    body: "English and Arabic UX in the demo today; shared gateway analyzers and ingestion keep one pipeline for GCC‑style bilingual catalogs.",
   },
   {
     icon: ShieldCheck,
-    title: "Tenant isolation",
-    body: "Every document keyed by tenant; gateway auth, quotas, and future marketplace connectors share one secure control plane.",
+    title: "Tenant isolation & ops",
+    body: "Documents and API keys are tenant‑scoped at the gateway; pair the Vercel‑hosted showcase with Docker Compose or cloud workers for ingestion, queues, and indexing without forking contracts.",
   },
   {
     icon: Timer,
-    title: "Path to sub‑second P95",
-    body: "Precomputed searchable text, capped reranking windows, and Redis‑backed ingestion queues — benchmarks before public SLAs.",
+    title: "Measured performance",
+    body: "Responses include server timing metadata; precomputed search_text, capped candidate windows, and async jobs keep retail‑scale latency predictable as you grow SKU count.",
   },
   {
     icon: Database,
     title: "Streaming CSV ingestion",
-    body: "Gzip uploads to object storage → durable jobs → batched bulk index — designed for-million‑SKU scale without loading RAM.",
+    body: "Gzip to object storage → durable jobs → bulk index updates — designed for multi‑million SKU feeds without holding the whole catalog in app RAM (use gateway mode when the static JSON bundle exceeds host limits).",
   },
 ];
 
@@ -56,13 +58,13 @@ export default function Page() {
       {/* Trust ribbon */}
       <section className="border-y border-white/5 bg-black/25 py-10">
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 px-4 text-center sm:flex-row sm:justify-between">
-          <p className="text-sm font-medium tracking-wide text-slate-400">Built for exec‑ready proofs</p>
+          <p className="text-sm font-medium tracking-wide text-slate-400">Ship from GitHub · auto-build on Vercel</p>
           <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-            <span>Composable services</span>
+            <span>CI eval suite</span>
             <span>•</span>
-            <span>API‑first SDK</span>
+            <span>OpenSearch gateway</span>
             <span>•</span>
-            <span>Self‑host or SaaS‑path</span>
+            <span>LLM‑assisted UX</span>
           </div>
         </div>
       </section>
@@ -75,17 +77,19 @@ export default function Page() {
               <Search className="size-3.5" aria-hidden /> Live playground
             </span>
             <h2 className="font-display mt-4 text-3xl tracking-tight text-white sm:text-4xl lg:text-[2.65rem]">
-              Natural‑language product search,&nbsp;
-              <span className="text-gradient-warm">grounded</span>&nbsp;
-              on your indexed catalog.
+              See how search turns intent into&nbsp;
+              <span className="text-gradient-warm">product discovery</span>.
             </h2>
             <p className="mx-auto mt-5 max-w-2xl text-base text-slate-400">
-              Paste a conversational query (“white stoneware vase under 200 AED for a gift”). Behind the gateway, parsers
-              extract price and color cues, constrain OpenSearch facets, and return ranked SKU cards with explanations.
+              Describe a need (“white stoneware vase under 200 AED”) — the playground applies price and colour constraints,
+              ranks catalog rows, and exposes how filters were interpreted. With LLM keys configured, an augment lane widens
+              synonyms and merch signals; if too few products match, refined query chips nudge shoppers toward findable
+              phrasing.
             </p>
             <p className="mx-auto mt-3 max-w-2xl text-sm text-slate-500">
-              Wire <code className="rounded-md bg-white/10 px-1 py-0.5 text-teal-200/90">COMMERCE_GATEWAY_URL</code>{" "}
-              in Vercel to your deployed Nest gateway (or expose a tunnel during the board demo).
+              Deploy this app on Vercel from your repo, then set{" "}
+              <code className="rounded-md bg-white/10 px-1 py-0.5 text-teal-200/90">COMMERCE_GATEWAY_URL</code> so the same UI
+              queries your live OpenSearch corpus (keys stay in env — never in the browser).
             </p>
           </div>
 
@@ -117,11 +121,11 @@ export default function Page() {
         <div className="mx-auto max-w-6xl px-4">
           <div className="mx-auto mb-14 max-w-2xl text-center">
             <h3 className="font-display text-2xl tracking-tight text-white sm:text-3xl">
-              Beyond “vector‑only toy search”
+              Product discovery that leadership can measure
             </h3>
             <p className="mt-3 text-slate-400">
-              Leadership asks for CTR, basket size, zero‑query recovery — commerce search needs lexical truth, facets,
-              and operational hygiene.
+              Discovery is not only embeddings: lexical truth for SKUs, merchandising hints, recovery when queries are
+              fuzzy, and telemetry to prove lift — this demo packages those behaviours for stakeholders.
             </p>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,9 +150,10 @@ export default function Page() {
               Ship the demo your board expects.
             </h3>
             <p className="mx-auto mt-4 max-w-xl text-sm text-slate-400 lg:text-[15px]">
-              Deploy the showcase UI to{" "}
-              <span className="font-medium text-teal-200">Vercel</span>; run the ingestion + search APIs on Docker
-              Compose, Railway, ECS, or on‑prem. Same OpenAPI contracts power mobile & web SDKs.
+              The storefront deploys from your Git repo to{" "}
+              <span className="font-medium text-teal-200">Vercel</span>; connect it to ingestion and search APIs on Docker
+              Compose, Railway, ECS, or on‑prem. Customers get conversational discovery, you get repeatable builds and JSON
+              search contracts for web and mobile.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link

@@ -9,7 +9,7 @@ export function Hero() {
       <div className="relative mx-auto grid max-w-6xl gap-14 px-4 pb-28 pt-[5.75rem] sm:grid-cols-[1.06fr,.94fr] sm:items-start sm:pt-24 lg:gap-24">
         <div className="animate-fade-up">
           <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.04] px-3.5 py-1.5 text-xs font-medium uppercase tracking-[0.12em] text-slate-300">
-            Enterprise catalog intelligence
+            GitHub → Vercel · Gateway‑ready APIs
           </p>
           <h1 className="font-display text-[2.65rem] font-medium leading-[1.08] tracking-tight text-white sm:text-[3.05rem] lg:text-[3.45rem]">
             Conversational&nbsp;
@@ -19,8 +19,10 @@ export function Hero() {
           </h1>
 
           <p className="mt-7 max-w-xl text-[1.065rem] leading-relaxed text-slate-400">
-            Buyers ask in plain language across English and Arabic storefronts while your taxonomy, availability, pricing
-            corridors, and business boosts stay honoured in the retrieval layer.
+            Shoppers describe what they want in everyday language — the showcase blends fast lexical retrieval with optional
+            LLM‑guided cues (gender, merch buckets, synonyms). When matches are thin, the UI surfaces refined search phrases
+            so customers still discover products. Plug in your Nest gateway + OpenSearch for full‑catalog BM25 production
+            traffic.
           </p>
 
           <div className="mt-11 flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -73,8 +75,9 @@ export function Hero() {
 }`}
             </pre>
             <p className="mt-4 text-xs leading-relaxed text-slate-500">
-              Deterministic parsing strips price + colour tokens and applies OpenSearch range + keyword filters before
-              ranking — no LLM tax on the hot path.
+              On the gateway, parsers apply price ranges, facets, and BM25‑style relevance. This Next.js showcase adds an
+              optional LLM lane to expand intent and merges ranked lists; sparse runs can show alternate queries — all
+              instrumented for latency and engagement signals.
             </p>
           </div>
         </div>

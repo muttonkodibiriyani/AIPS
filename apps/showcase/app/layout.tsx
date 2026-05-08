@@ -12,7 +12,7 @@ const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-display" });
 export const metadata: Metadata = {
   title: "Commerce AI | Enterprise Product Discovery",
   description:
-    "Hybrid semantic commerce search with natural-language queries, multilingual catalog support, and enterprise-grade ingestion — built for modern retail catalogs.",
+    "Deploy on Vercel: natural-language product search with lexical ranking, optional LLM intent augmentation, smart suggestions when results are sparse, and analytics — wired to OpenSearch-backed APIs for production catalogs.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
