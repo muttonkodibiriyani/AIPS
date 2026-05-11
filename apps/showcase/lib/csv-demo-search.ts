@@ -426,18 +426,36 @@ export function genderIntent(query: string): "men" | "women" | "kids" | null {
   return null;
 }
 
+/** Men's shirt/blouse queries should not rank women's shirt-dresses via token "shirt". */
+function menTailoredShirtIntent(genderWant: "men" | "women" | "kids" | null, queryLower: string): boolean {
+  return (
+    genderWant === "men" &&
+    /\b(shirts?|blouses?|button[\s-]down|oxford|polo\b)/u.test(queryLower) &&
+    !/\bdress(?:es)?\b|\bgown\b|\bjumpsuits?\b|\bmidi\b|\bmaxi\b|\bcocktail\b|\bevening\s+wear\b/u.test(queryLower)
+  );
+}
+
 /** When shopper names a gender, up-rank SKUs whose customer_group matches; penalize empty / opposite corridor. */
 function genderLexicalFactor(attrs: Record<string, string> | undefined, intent: "men" | "women" | "kids"): number {
   const raw = attrs?.customer_group ?? "";
   const t = customerGroupTokens(raw);
   if (t.length === 0) return 0.86;
 
-  if (productMatchesGenderSegment(attrs, intent)) return 1.52;
-
   const hasMan = t.some((x) => x === "MAN" || x === "MEN" || x === "MENS" || x === "MEN'S");
   const hasWoman = t.some((x) => x === "WOMAN" || x === "WOMEN" || x === "LADIES");
+  const hasBoy = t.includes("BOY");
+  const hasGirl = t.includes("GIRL");
+  const onlyChildTokens = (hasBoy || hasGirl) && !hasMan && !hasWoman;
+
   if (intent === "men" && hasWoman && !hasMan) return 0.025;
   if (intent === "women" && hasMan && !hasWoman) return 0.025;
+
+  const unisexAdult = hasMan && hasWoman && !onlyChildTokens;
+  if (intent === "men" && unisexAdult) return 1.12;
+  if (intent === "women" && unisexAdult) return 1.12;
+
+  if (productMatchesGenderSegment(attrs, intent)) return 1.58;
+
   return 0.62;
 }
 
@@ -632,6 +650,16 @@ function scoreDoc(
     score *= retrievalCat === "home_living" ? 0.06 : 0.2;
   }
 
+  /** “Mens white shirt” → down-rank women's shirt-dresses (token “shirt” skew) and dress category. */
+  if (menTailoredShirtIntent(genderWant, queryLower)) {
+    const isShirtDress = /\bshirt\s+dress\b|\bdress\s+shirt\b/u.test(`${titleEn} ${titleAr}`);
+    if (isShirtDress || retrievalCat === "dresses_skirts") {
+      score *= 0.035;
+    } else if (retrievalCat === "tops_shirts_blouses") {
+      score *= 1.35;
+    }
+  }
+
   if (genderWant) {
     score *= genderLexicalFactor(p.attrs, genderWant);
   }
@@ -709,6 +737,9 @@ export function searchCsvDemoCatalog(
 
   let genderWant = genderIntent(augmentedQuery);
   if (aug?.gender) genderWant = aug.gender;
+  /** Shopper's exact words beat a conflicting model `gender` (common demo failure mode). */
+  const genderFromRaw = genderIntent(queryFixed);
+  if (genderFromRaw != null) genderWant = genderFromRaw;
 
   const tokenSource = stripPricePhrasesForTokenization(augmentedQuery);
   const phrase = normalizeQueryPhrase(tokenSource);

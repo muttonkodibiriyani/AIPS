@@ -92,15 +92,21 @@ export function mergeRetailHeuristicsIntoAugment(
 
   if (genderWear) {
     out.apparelOnly = true;
-    const namesHome = /\b(?:duvet|curtain|vase|candle|bedding|towel|homeware|stoneware|cushion)\b/u.test(
-      ql.toLowerCase(),
-    );
+    const qll = ql.toLowerCase();
+    /** Pin corridor from NL so a flaky LLM `gender` field cannot contradict “mens wear …”. */
+    if (/\b(men'?s|mens|for\s+men|\bmen\b|\bman\b|\bmale\b)/u.test(qll)) out.gender = "men";
+    else if (/\b(women'?s|womens|for\s+women|\bwomen\b|\bladies\b|\blady\b|\bwoman\b)/u.test(qll)) out.gender = "women";
+    const namesHome = /\b(?:duvet|curtain|vase|candle|bedding|towel|homeware|stoneware|cushion)\b/u.test(qll);
     if (!namesHome) {
       const neg = new Set([...(out.negatedTerms ?? []), ...GENDER_WEAR_HOME_NEGATIONS]);
       out.negatedTerms = [...neg].slice(0, 14);
     }
-    const extra =
-      "shirt blouse top tee dress skirt knitwear outerwear trousers jeans party casual outfit fashion women men";
+    const mentionsStructuredShirt =
+      /\b(shirts?|blouses?|button[\s-]down|oxford\s+shirt|woven\s+shirt|polo\b)/u.test(qll) &&
+      !/\bdress(?:es)?\b|\bgown\b|\bjumpsuits?\b/u.test(qll);
+    const extra = mentionsStructuredShirt
+      ? "shirt blouse top tee knit trousers jeans casual polo oxford woven long sleeve men's fit tailored"
+      : "shirt blouse top tee dress skirt knitwear outerwear trousers jeans party casual outfit fashion women men";
     const cur = (out.expandedLexical ?? "").trim();
     out.expandedLexical = [cur, extra].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 400);
   }

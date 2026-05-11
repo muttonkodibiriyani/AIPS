@@ -76,6 +76,54 @@ describe("intent: gender + category (men sandals)", () => {
   });
 });
 
+describe("intent: men's white shirt vs shirt dress (hallucinated LLM gender)", () => {
+  const cat: DemoCatalogFile = {
+    products: [
+      P({
+        product_id: "shirt-dress-uni",
+        sku: "HM-WHITE-DRESS",
+        title: { en: "Shirt dress", ar: "" },
+        attrs: {
+          customer_group: "Man | Woman",
+          retrieval_category: "dresses_skirts",
+          color: "White",
+        },
+        pricing: { aed: 149 },
+        images: [],
+        availability: true,
+        search_text: "shirt dress relaxed fit cotton white lightweight woman summer belted",
+      }),
+      P({
+        product_id: "oxford-man",
+        sku: "HM-OXF-M",
+        title: { en: "Oxford shirt Regular fit", ar: "" },
+        attrs: {
+          customer_group: ",Man,",
+          retrieval_category: "tops_shirts_blouses",
+          color: "White",
+        },
+        pricing: { aed: 149 },
+        images: [],
+        availability: true,
+        search_text: "oxford shirt cotton white long sleeve tailored classic mens business casual",
+      }),
+    ],
+  };
+
+  it('prioritizes men Oxford shirt over unisex shirt dress for "mens wear white shirt"', () => {
+    const r = searchCsvDemoCatalog(cat, "mens wear white shirt", "demo", { from: 0, size: 5 });
+    expect(r.products[0]?.product_id).toBe("oxford-man");
+    expect(r.products.some((p) => p.product_id === "shirt-dress-uni")).toBe(true);
+  });
+
+  it("raw-query mens corridor wins over conflicting llmAugment.gender", () => {
+    const r = searchCsvDemoCatalog(cat, "mens wear white shirt", "demo", { from: 0, size: 5 }, {
+      llmAugment: { gender: "women", expandedLexical: "midi dress satin" },
+    });
+    expect(r.products[0]?.product_id).toBe("oxford-man");
+  });
+});
+
 describe("intent: price ceiling + home", () => {
   const cat: DemoCatalogFile = {
     products: [
